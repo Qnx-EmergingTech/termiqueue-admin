@@ -1,367 +1,320 @@
+// api.js
 import axios from 'axios';
-import mockAuthData from '../data/authMockData.json';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://44.202.107.196:8080';
+/* ================================
+ * 1) Environment & Configuration
+ * ================================ */
 
-const getAuthHeaders = () => {
-  const accessToken = localStorage.getItem('accessToken');
+// Backward-compatible env variables
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://44.202.107.196:8080';
 
-  if (!accessToken) {
-    return {};
+// Allow changing the login path without touching code everywhere
+// Set VITE_LOGIN_PATH=/auth/login if your server uses that.
+const LOGIN_PATH = (import.meta.env.VITE_LOGIN_PATH || '/login').replace(/\/+$/, '') || '/login';
+
+// Optional: if your backend sets cookies for sessions (not typical with JWT in SPA)
+// Set VITE_WITH_CREDENTIALS=true to send cookies.
+const WITH_CREDENTIALS = String(import.meta.env.VITE_WITH_CREDENTIALS || 'false') === 'true';
+
+// Default request timeout (ms)
+const TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 15000);
+
+// Centralized storage keys
+const ACCESS_TOKEN_KEY = 'accessToken';
+const REFRESH_TOKEN_KEY = 'refreshToken';
+const USER_KEY = 'user';
+
+/* ================================
+ * 2) Axios Instance
+ * ================================ */
+
+const api = axios.create({
+  baseURL: API_URL.replace(/\/+$/, ''), // no trailing slash
+  timeout: TIMEOUT_MS,
+  withCredentials: WITH_CREDENTIALS,
+  // Always treat only 2xx as success
+  validateStatus: (status) => status >= 200 && status < 300,
+  headers: {
+    'Content-Type': 'application/json'
   }
+});
 
-  return {
-    Authorization: `Bearer ${accessToken}`,
-  };
+/* ================================
+ * 3) Token Utilities
+ * ================================ */
+
+const getAccessToken = () => localStorage.getItem(ACCESS_TOKEN_KEY) || null;
+const setAccessToken = (token) => {
+  if (!token) {
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+  } else {
+    localStorage.setItem(ACCESS_TOKEN_KEY, token);
+  }
 };
 
-const getFirstDefinedValue = (source, keys, fallback = '') => {
-  for (const key of keys) {
-    const value = source?.[key];
-    if (value !== undefined && value !== null && value !== '') {
-      return value;
+const getRefreshToken = () => localStorage.getItem(REFRESH_TOKEN_KEY) || null;
+const setRefreshToken = (token) => {
+  if (!token) {
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+  } else {
+    localStorage.setItem(REFRESH_TOKEN_KEY, token);
+  }
+};
+
+const setUser = (user) => {
+  if (!user) {
+    localStorage.removeItem(USER_KEY);
+  } else {
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  }
+};
+
+export const getCurrentUser = () => {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+/* ================================
+ * 4) Interceptors
+ * ================================ */
+
+// Attach Authorization header if token is present
+api.interceptors.request.use((config) => {
+  const token = getAccessToken();
+  if (token) {
+    // Do not mutate config.headers directly if undefined
+    config.headers = config.headers || {};
+    // Avoid overriding existing auth header if present
+    if (!config.headers.Authorization) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
   }
+  return config;
+});
 
-  return fallback;
+/**
+ * Optional: Auto-refresh access token on 401
+ * Enable by setting VITE_ENABLE_TOKEN_REFRESH=true and implement /auth/refresh on backend.
+ */
+const ENABLE_TOKEN_REFRESH = String(import.meta.env.VITE_ENABLE_TOKEN_REFRESH || 'false') === 'true';
+let isRefreshing = false;
+let pendingQueue = [];
+
+const processQueue = (error, token = null) => {
+  pendingQueue.forEach(({ resolve, reject }) => {
+    if (error) reject(error);
+    else resolve(token);
+  });
+  pendingQueue = [];
 };
 
-const mapApiStatusToUi = (rawStatus) => {
-  const normalized = String(rawStatus || 'Inactive').trim().toLowerCase();
+if (ENABLE_TOKEN_REFRESH) {
+  api.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+      const original = error.config || {};
+      const status = error.response?.status;
 
-  if (normalized === 'available') {
-    return 'Available';
-  }
+      // Only handle 401 once per request
+      if (status === 401 && !original._retry) {
+        original._retry = true;
 
-  if (normalized === 'active') {
-    return 'Active';
-  }
+        // Queue parallel requests while refreshing
+        if (isRefreshing) {
+          return new Promise((resolve, reject) => {
+            pendingQueue.push({
+              resolve: (token) => {
+                if (token) original.headers.Authorization = `Bearer ${token}`;
+                resolve(api(original));
+              },
+              reject
+            });
+          });
+        }
 
-  if (normalized === 'in_transit') {
-    return 'In Transit';
-  }
+        try {
+          isRefreshing = true;
+          const refreshed = await refreshAccessToken(); // defined below
+          processQueue(null, refreshed);
+          original.headers.Authorization = `Bearer ${refreshed}`;
+          return api(original);
+        } catch (refreshErr) {
+          processQueue(refreshErr, null);
+          // If refresh fails, force logout
+          logoutAPI();
+          return Promise.reject(refreshErr);
+        } finally {
+          isRefreshing = false;
+        }
+      }
 
-  if (normalized === 'arrived') {
-    return 'Arrived';
-  }
-
-  if (normalized === 'maintenance') {
-    return 'Maintenance';
-  }
-
-  if (normalized === 'archived' || normalized === 'offline') {
-    return 'Offline';
-  }
-
-  return 'Offline';
-};
-
-const mapUiStatusToApi = (rawStatus) => {
-  const normalized = String(rawStatus || '').trim().toLowerCase();
-
-  if (
-    normalized === 'active' ||
-    normalized === 'available' ||
-    normalized === 'offline' ||
-    normalized === 'in_transit' ||
-    normalized === 'arrived'
-  ) {
-    return normalized;
-  }
-
-  if (normalized === 'in transit') {
-    return 'in_transit';
-  }
-
-  if (normalized === 'offline') {
-    return 'offline';
-  }
-
-  if (normalized === 'inactive' || normalized === 'maintenance' || normalized === 'archived') {
-    return 'offline';
-  }
-
-  return 'available';
-};
-
-const splitRoute = (routeValue) => {
-  const routeText = String(routeValue || '').trim();
-  if (!routeText) {
-    return { origin: '', destination: '' };
-  }
-
-  const parts = routeText.split('-').map((part) => part.trim()).filter(Boolean);
-  if (parts.length < 2) {
-    return { origin: parts[0] || '', destination: '' };
-  }
-
-  return {
-    origin: parts[0],
-    destination: parts.slice(1).join(' - '),
-  };
-};
-
-const generateSecureAttendantId = () => {
-  const length = 28;
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const cryptoApi = globalThis?.crypto;
-
-  if (cryptoApi?.getRandomValues) {
-    const bytes = new Uint8Array(length);
-    cryptoApi.getRandomValues(bytes);
-    return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('');
-  }
-
-  let fallback = '';
-  while (fallback.length < length) {
-    fallback += Math.random().toString(36).slice(2);
-  }
-
-  return fallback.slice(0, length);
-};
-
-const buildAttendantId = ({ attendantId }) => {
-  const directId = String(attendantId || '').trim();
-  if (directId) {
-    return directId;
-  }
-
-  return generateSecureAttendantId();
-};
-
-const normalizeTimestamp = (value) => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (value instanceof Date) {
-    return value.getTime();
-  }
-
-  if (value && typeof value.toMillis === 'function') {
-    const millis = value.toMillis();
-    if (Number.isFinite(millis)) {
-      return millis;
+      // Not a handled case: propagate
+      return Promise.reject(error);
     }
+  );
+}
+
+/* ================================
+ * 5) Error Helpers
+ * ================================ */
+
+const extractError = (err) => {
+  // Network error or timeout
+  if (err.code === 'ECONNABORTED') {
+    return { message: `Request timed out after ${TIMEOUT_MS}ms`, status: 0, data: null };
   }
-
-  if (typeof value === 'string') {
-    const numericValue = Number(value);
-    if (Number.isFinite(numericValue)) {
-      return numericValue;
-    }
-
-    const parsedDate = Date.parse(value);
-    if (!Number.isNaN(parsedDate)) {
-      return parsedDate;
-    }
+  if (!err.response) {
+    return { message: err.message || 'Network error', status: 0, data: null };
   }
-
-  return Date.now();
+  const { status, data } = err.response;
+  const message =
+    (typeof data === 'string' && data) ||
+    data?.message ||
+    data?.error ||
+    `Request failed with status ${status}`;
+  return { message, status, data };
 };
+
+const logApiError = (label, err) => {
+  const { message, status, data } = extractError(err);
+  console.error(`[API:${label}] ${message}`, {
+    status,
+    baseURL: API_URL,
+    path: err.config?.url,
+    method: err.config?.method,
+    data
+  });
+};
+
+/* ================================
+ * 6) Auth APIs
+ * ================================ */
+
+/**
+ * Login
+ * - Configurable path via VITE_LOGIN_PATH (default: /login)
+ * - Expects API to return at least { accessToken, user, refreshToken? }
+ */
+export const loginAPI = async (email, password) => {
+  try {
+    const response = await api.post(LOGIN_PATH, { email, password });
+    const { accessToken, user, refreshToken } = response.data || {};
+
+    if (accessToken) setAccessToken(accessToken);
+    if (refreshToken) setRefreshToken(refreshToken);
+    if (user) setUser(user);
+
+    return response.data;
+  } catch (error) {
+    logApiError('login', error);
+    throw extractError(error);
+  }
+};
+
+/**
+ * Optional: refresh token flow
+ * Requires backend endpoint and refresh token to be stored.
+ * Configure VITE_REFRESH_PATH (default: /auth/refresh).
+ */
+const REFRESH_PATH = (import.meta.env.VITE_REFRESH_PATH || '/auth/refresh').replace(/\/+$/, '') || '/auth/refresh';
+async function refreshAccessToken() {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) throw new Error('No refresh token');
+  const res = await api.post(REFRESH_PATH, { refreshToken });
+  const newToken = res.data?.accessToken;
+  if (!newToken) throw new Error('Refresh did not return accessToken');
+  setAccessToken(newToken);
+  return newToken;
+}
+
+/**
+ * Logout (client-side)
+ * - If your backend supports server-side logout, POST there too.
+ */
+export const logoutAPI = () => {
+  setAccessToken(null);
+  setRefreshToken(null);
+  setUser(null);
+  // If you need to notify server, do it here:
+  // await api.post('/auth/logout');
+  window.location.href = '/login';
+};
+
+/* ================================
+ * 7) Domain Mappers
+ * ================================ */
 
 const normalizeBus = (bus, index) => {
-  const normalizedCapacity = Number(getFirstDefinedValue(bus, ['capacity', 'seat_capacity', 'max_capacity'], 0));
-  const normalizedLastUpdated = normalizeTimestamp(
-    getFirstDefinedValue(
-      bus,
-      ['updated_at', 'arrived_at', 'last_updated', 'lastUpdated', 'updatedAt', 'created_at', 'createdAt'],
-      Date.now()
-    )
-  );
-  const origin = String(getFirstDefinedValue(bus, ['origin', 'route_origin', 'start_point'], '')).trim();
-  const destination = String(getFirstDefinedValue(bus, ['destination', 'registered_destination', 'registeredDestination'], '')).trim();
+  const statusMap = {
+    available: 'Available',
+    active: 'Active',
+    in_transit: 'In Transit',
+    arrived: 'Arrived',
+    maintenance: 'Maintenance'
+  };
+  const rawStatus = (bus.status || '').toString().toLowerCase();
 
-  let normalizedRoute = String(getFirstDefinedValue(bus, ['route', 'route_name'], 'N/A')).trim();
-  if (origin && destination) {
-    normalizedRoute = `${origin} - ${destination}`;
-  } else if (origin) {
-    normalizedRoute = origin;
-  } else if (destination) {
-    normalizedRoute = destination;
-  }
+  const routePieces = [];
+  if (bus.origin) routePieces.push(bus.origin);
+  if (bus.destination) routePieces.push(bus.destination);
 
   return {
-    id: getFirstDefinedValue(bus, ['id', 'bus_id', '_id'], index + 1),
-    busNumber: String(getFirstDefinedValue(bus, ['busNumber', 'bus_number', 'busNo', 'code'], 'N/A')),
-    route: normalizedRoute,
-    busCompany: String(getFirstDefinedValue(bus, ['bus_name', 'busCompany', 'bus_company', 'company', 'operator'], 'N/A')),
-    status: mapApiStatusToUi(getFirstDefinedValue(bus, ['status', 'bus_status'], 'Inactive')),
-    plateNumber: String(getFirstDefinedValue(bus, ['plateNumber', 'plate_number', 'plateNo'], 'N/A')),
-    capacity: Number.isFinite(normalizedCapacity) ? normalizedCapacity : 0,
-    busAttendant: String(getFirstDefinedValue(bus, ['attendant_name', 'busAttendant', 'bus_attendant'], 'N/A')),
-    attendantId: String(getFirstDefinedValue(bus, ['attendantId', 'attendant_id'], '')),
-    busCompanyEmail: String(getFirstDefinedValue(bus, ['busCompanyEmail', 'company_email', 'email'], 'N/A')),
-    busCompanyContact: String(getFirstDefinedValue(bus, ['busCompanyContact', 'company_contact', 'contact_number'], 'N/A')),
-    registeredDestination: String(getFirstDefinedValue(bus, ['destination', 'registeredDestination', 'registered_destination'], 'N/A')),
-    busPhoto: getFirstDefinedValue(bus, ['busPhoto', 'bus_photo', 'photo_url'], null),
-    lastUpdated: normalizedLastUpdated,
+    id: bus.id ?? bus.bus_id ?? index,
+    busNumber: bus.bus_number ?? bus.busNumber ?? 'N/A',
+    route: bus.route || (routePieces.length ? routePieces.join(' - ') : 'No Route'),
+    status: statusMap[rawStatus] || 'Offline',
+    plateNumber: bus.plate_number ?? bus.plateNumber ?? 'N/A',
+    busCompany: bus.bus_name ?? bus.busCompany ?? 'Unknown Co.',
+    capacity: Number.isFinite(bus.capacity) ? bus.capacity : 0,
+    attendantName: bus.attendant_name || 'No Attendant'
   };
 };
 
-const extractBusArray = (payload) => {
-  if (Array.isArray(payload)) {
-    return payload;
-  }
+/* ================================
+ * 8) Bus APIs
+ * ================================ */
 
-  if (Array.isArray(payload?.buses)) {
-    return payload.buses;
-  }
-
-  if (Array.isArray(payload?.data)) {
-    return payload.data;
-  }
-
-  return [];
-};
-
-const extractSingleBus = (payload) => {
-  if (!payload) {
-    return null;
-  }
-
-  if (Array.isArray(payload)) {
-    return payload[0] || null;
-  }
-
-  if (payload.bus && typeof payload.bus === 'object') {
-    return payload.bus;
-  }
-
-  if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
-    return payload.data;
-  }
-
-  return payload;
-};
-
-const mapBusToApiPayload = (busData = {}, options = { partial: false }) => {
-  const payload = {};
-  const { partial } = options;
-  const routeParts = splitRoute(getFirstDefinedValue(busData, ['route', 'route_name'], ''));
-
-  const assignMappedValue = (targetKey, sourceKeys, transform = (value) => value) => {
-    for (const sourceKey of sourceKeys) {
-      if (Object.prototype.hasOwnProperty.call(busData, sourceKey) && busData[sourceKey] !== undefined) {
-        payload[targetKey] = transform(busData[sourceKey]);
-        return;
-      }
-    }
-
-    if (!partial) {
-      payload[targetKey] = transform('');
-    }
-  };
-
-  assignMappedValue('bus_number', ['bus_number', 'busNumber']);
-  assignMappedValue('bus_name', ['bus_name', 'busName', 'operator', 'busCompany'], (value) => String(value || '').trim());
-  assignMappedValue('plate_number', ['plate_number', 'plateNumber']);
-  assignMappedValue('capacity', ['capacity', 'seat_capacity', 'max_capacity'], (value) => Number(value || 0));
-  assignMappedValue('priority_seat', ['priority_seat', 'prioritySeat'], (value) => Number(value || 0));
-  assignMappedValue('status', ['status', 'bus_status'], (value) => mapUiStatusToApi(value));
-  assignMappedValue('origin', ['origin', 'route_origin'], (value) => String(value || '').trim());
-  assignMappedValue('destination', ['destination', 'registeredDestination', 'route_destination'], (value) => String(value || '').trim());
-  assignMappedValue('company_email', ['company_email', 'busCompanyEmail', 'email']);
-  assignMappedValue('company_contact', ['company_contact', 'busCompanyContact', 'contact_number']);
-  assignMappedValue('attendant_name', ['attendant_name', 'busAttendant', 'bus_attendant', 'attendantName']);
-  assignMappedValue('attendant_id', ['attendant_id', 'attendantId'], (value) => String(value || '').trim());
-
-  if (!partial) {
-    if (!payload.bus_name || !String(payload.bus_name).trim()) {
-      payload.bus_name = payload.bus_number || 'Bus';
-    }
-
-    if ((payload.priority_seat === '' || payload.priority_seat === undefined || Number.isNaN(payload.priority_seat))) {
-      payload.priority_seat = 5;
-    }
-
-    if ((!payload.origin || !String(payload.origin).trim()) && routeParts.origin) {
-      payload.origin = routeParts.origin;
-    }
-
-    if ((!payload.destination || !String(payload.destination).trim())) {
-      payload.destination = getFirstDefinedValue(
-        busData,
-        ['registeredDestination', 'destination'],
-        routeParts.destination
-      ) || routeParts.destination;
-    }
-
-    if (!payload.attendant_id) {
-      payload.attendant_id = buildAttendantId({
-        attendantId: getFirstDefinedValue(busData, ['attendantId', 'attendant_id'], ''),
-        attendantName: getFirstDefinedValue(busData, ['busAttendant', 'bus_attendant', 'attendant_name'], ''),
-        busNumber: getFirstDefinedValue(busData, ['busNumber', 'bus_number'], ''),
-      });
-    }
-  }
-
-  if (partial && payload.attendant_id === undefined) {
-    const generatedAttendantId = buildAttendantId({
-      attendantId: getFirstDefinedValue(busData, ['attendantId', 'attendant_id'], ''),
-      attendantName: getFirstDefinedValue(busData, ['busAttendant', 'bus_attendant', 'attendant_name'], ''),
-      busNumber: getFirstDefinedValue(busData, ['busNumber', 'bus_number'], ''),
-    });
-
-    if (generatedAttendantId) {
-      payload.attendant_id = generatedAttendantId;
-    }
-  }
-
-  return payload;
-};
-
-// --- AUTH FUNCTIONS ---
-export const loginAPI = async (email, password) => {
-  const response = await axios.post(`${API_URL}/auth/login`, { email, password });
-  return response.data;
-};
-
-export const logoutAPI = async () => {
-  return await axios.post(`${API_URL}/auth/logout`);
-};
-
-export const getCurrentUser = async () => {
+export const fetchBuses = async () => {
   try {
-    const savedUser = localStorage.getItem('user');
-    return savedUser ? JSON.parse(savedUser) : null;
+    const res = await api.get('/buses');
+    const raw = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+    return raw.map((bus, i) => normalizeBus(bus, i));
   } catch (error) {
-    return null;
+    logApiError('fetchBuses', error);
+    return [];
   }
-};
-
-// --- BUS FUNCTIONS (Add these to fix the Buses page crash) ---
-export const fetchBuses = async (params = {}) => {
-  const response = await axios.get(`${API_URL}/buses/`, {
-    params,
-    headers: getAuthHeaders(),
-  });
-
-  const rawBuses = extractBusArray(response.data);
-  return rawBuses.map((bus, index) => normalizeBus(bus, index));
 };
 
 export const createBus = async (busData) => {
-  const response = await axios.post(`${API_URL}/buses/`, mapBusToApiPayload(busData, { partial: false }), {
-    headers: getAuthHeaders(),
-  });
-
-  const createdBus = extractSingleBus(response.data);
-  return normalizeBus(createdBus || busData, 0);
+  try {
+    const res = await api.post('/buses', busData);
+    return normalizeBus(res.data, 0);
+  } catch (error) {
+    logApiError('createBus', error);
+    throw extractError(error);
+  }
 };
 
 export const updateBus = async (id, busData) => {
-  const response = await axios.put(`${API_URL}/buses/${id}`, mapBusToApiPayload(busData, { partial: true }), {
-    headers: getAuthHeaders(),
-  });
-
-  const updatedBus = extractSingleBus(response.data);
-  return normalizeBus(updatedBus || { id, ...busData }, 0);
+  try {
+    const res = await api.put(`/buses/${id}`, busData);
+    return normalizeBus(res.data, 0);
+  } catch (error) {
+    logApiError('updateBus', error);
+    throw extractError(error);
+  }
 };
 
 export const deleteBus = async (id) => {
-  const response = await axios.delete(`${API_URL}/buses/${id}`, {
-    headers: getAuthHeaders(),
-  });
-  return response.data;
+  try {
+    await api.delete(`/buses/${id}`);
+    return true;
+  } catch (error) {
+    logApiError('deleteBus', error);
+    return false;
+  }
 };
