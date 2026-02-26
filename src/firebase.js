@@ -11,26 +11,29 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
-// Verify required env vars are present
-const hasConfig = !!(
-  firebaseConfig.apiKey &&
-  firebaseConfig.authDomain &&
-  firebaseConfig.projectId &&
+// 1. Validation check for essential keys
+export const firebaseInitialized = !!(
+  firebaseConfig.apiKey && 
+  firebaseConfig.projectId && 
   firebaseConfig.appId
 );
 
+// Declare variables
 let app = null;
 let db = null;
 let auth = null;
 
-if (hasConfig) {
-  app = initializeApp(firebaseConfig);
-  db = getFirestore(app);
-  auth = getAuth(app);
+// 2. Conditional Initialization
+if (firebaseInitialized) {
+  try {
+    app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    auth = getAuth(app);
+  } catch (error) {
+    console.error("Firebase initialization error:", error);
+  }
 } else {
-  // Warn in development so the developer knows why Firebase calls fail
-  console.warn('Firebase not initialized: missing VITE_FIREBASE_* environment variables. Running in demo mode.');
+  console.warn("Firebase keys are missing. Firebase features will be disabled.");
 }
 
-export const firebaseInitialized = hasConfig;
 export { db, auth, app };
