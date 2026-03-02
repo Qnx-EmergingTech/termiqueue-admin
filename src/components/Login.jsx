@@ -23,13 +23,18 @@ function Login() {
       return;
     }
 
+<<<<<<< HEAD
     const result = await login(username, password);
+=======
+    // This calls the login function in your AuthContext.jsx
+    const result = await login(email, password);
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 
     if (!result.success) {
-      setError(result.error);
+      setError(result.error || 'Login failed');
       setLoading(false);
     }
-    // If success, AuthContext will update and App will redirect
+    // If success, AuthContext will update and the App will redirect you automatically
   };
 
   return (
@@ -53,6 +58,7 @@ function Login() {
             </div>
           )}
 
+          {/* EMAIL FIELD */}
           <div className="form-group">
             <label htmlFor="username">Username or Email</label>
             <input
@@ -66,17 +72,27 @@ function Login() {
             />
           </div>
 
+          {/* PASSWORD FIELD WITH EYE TOGGLE */}
           <div className="form-group">
             <label htmlFor="password">Password</label>
+<<<<<<< HEAD
             <div className="password-input-wrapper">
               <input
                 type={showPassword ? 'text' : 'password'}
                 id="password"
+=======
+            <div style={{ position: 'relative', width: '100%' }}>
+              <input
+                id="password"
+                // This switches between dots and text
+                type={showPassword ? "text" : "password"} 
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
                 disabled={loading}
                 autoComplete="current-password"
+<<<<<<< HEAD
               />
               <button
                 type="button"
@@ -87,6 +103,31 @@ function Login() {
                 title={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? <MdVisibilityOff /> : <MdVisibility />}
+=======
+                style={{ width: '100%', paddingRight: '45px' }} 
+              />
+              
+              <button
+                type="button"
+                // This toggles the showPassword true/false
+                onClick={() => setShowPassword(!showPassword)}
+                style={{
+                  position: 'absolute',
+                  right: '10px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '5px'
+                }}
+              >
+                {showPassword ? "🙈" : "👁️"}
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
               </button>
             </div>
           </div>

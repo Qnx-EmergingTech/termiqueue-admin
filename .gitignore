@@ -28,3 +28,4 @@ dist-ssr
 *.sln
 *.sw?
 serviceAccountKey.json
+__pycache__/

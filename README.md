@@ -58,6 +58,10 @@ Required values in `.env`:
 If you are testing locally with temporary data, edit these JSON files:
 
 - `src/data/busesData.json` — bus records used by Buses and Dashboard charts
+<<<<<<< HEAD
+=======
+- `src/data/activationRequestsData.json` — account activation requests used by Requests page
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 - `src/data/authMockData.json` — mock login user profile and auth error message
 
 If changes do not appear right away, clear this local storage key in the browser and refresh:
@@ -145,9 +149,13 @@ qnext-admin/
 │   │   └── AuthContext.jsx
 │   ├── services/        # API services
 │   │   ├── api.js
+<<<<<<< HEAD
 │   │   ├── authService.js
 │   │   ├── dashboardService.js
 │   │   └── busFirebaseSyncService.js
+=======
+│   │   └── authService.js
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 │   ├── utils/           # Utility functions
 │   │   └── auth.js
 │   ├── firebase.js       # Firebase app/auth/firestore initialization
