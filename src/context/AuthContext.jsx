@@ -3,7 +3,7 @@ import { createContext, useState, useContext, useEffect } from 'react';
 import { auth, db, firebaseInitialized } from '../firebase'; 
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import { loginAPI, logoutAPI, getCurrentUser as apiGetCurrentUser } from '../services/api';
+import { API_SESSION_EXPIRED_EVENT, loginAPI, logoutAPI, getCurrentUser as apiGetCurrentUser } from '../services/api';
 
 const AuthContext = createContext(null);
 
@@ -11,10 +11,11 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authNotice, setAuthNotice] = useState('');
 
-  // Auth mode is explicit to avoid accidental API auth for fresh clones.
-  const AUTH_PROVIDER = (import.meta.env.VITE_AUTH_PROVIDER || 'firebase').toLowerCase();
-  const apiConfigured = AUTH_PROVIDER === 'api' && !!import.meta.env.VITE_API_URL;
+  // Prefer API auth when API URL is configured unless Firebase is explicitly requested.
+  const AUTH_PROVIDER = (import.meta.env.VITE_AUTH_PROVIDER || '').toLowerCase();
+  const apiConfigured = AUTH_PROVIDER !== 'firebase' && !!import.meta.env.VITE_API_URL;
 
   // 2. Firebase "Watcher" - This checks if you are logged in automatically
   useEffect(() => {
@@ -85,26 +86,54 @@ export const AuthProvider = ({ children }) => {
     return () => unsubscribe(); // Cleanup the watcher
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const handleSessionExpired = (event) => {
+      const message = event?.detail?.message || 'Session expired. Please login again.';
+      setAuthNotice(message);
+      setUser(null);
+      setIsAuthenticated(false);
+      setLoading(false);
+    };
+
+    window.addEventListener(API_SESSION_EXPIRED_EVENT, handleSessionExpired);
+
+    return () => {
+      window.removeEventListener(API_SESSION_EXPIRED_EVENT, handleSessionExpired);
+    };
+  }, []);
+
   // 3. New Firebase Login Logic
   const login = async (email, password) => {
     // If an API backend is configured, use it for login
     if (apiConfigured) {
       try {
         const data = await loginAPI(email, password);
-        // loginAPI should return { accessToken, refreshToken, user }
+        // loginAPI may return tokens first, then user profile from /profiles/me
         if (data.accessToken) {
           localStorage.setItem('accessToken', data.accessToken);
         }
         if (data.refreshToken) {
           localStorage.setItem('refreshToken', data.refreshToken);
         }
-        if (data.user) {
-          localStorage.setItem('user', JSON.stringify(data.user));
-          setUser(data.user);
-          setIsAuthenticated(true);
-          return { success: true };
+
+        const resolvedUser = data.user || await apiGetCurrentUser();
+
+        if (!resolvedUser) {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          localStorage.removeItem('user');
+          return { success: false, error: 'Login succeeded but profile could not be loaded.' };
         }
-        return { success: false, error: 'Invalid login response from API' };
+
+        localStorage.setItem('user', JSON.stringify(resolvedUser));
+        setAuthNotice('');
+        setUser(resolvedUser);
+        setIsAuthenticated(true);
+        return { success: true };
       } catch (err) {
         const msg = err?.response?.data?.message || err?.message || 'Login failed';
         return { success: false, error: msg };
@@ -164,6 +193,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       localStorage.removeItem('demoAuth');
+      setAuthNotice('');
       setUser(null);
       setIsAuthenticated(false);
     } catch (error) {
@@ -171,7 +201,9 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const value = { user, isAuthenticated, loading, login, logout };
+  const clearAuthNotice = () => setAuthNotice('');
+
+  const value = { user, isAuthenticated, loading, login, logout, authNotice, clearAuthNotice };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

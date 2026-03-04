@@ -3,7 +3,7 @@ import { MdChevronRight } from 'react-icons/md';
 import '../styles/Body.scss';
 import '../styles/Requests.scss';
 import TableSkeletonRows from './TableSkeletonRows';
-import { createBus, deleteBus, fetchBuses, updateBus } from '../services/api';
+import { createBus, deleteBus, fetchBuses, fetchProfiles, updateBus } from '../services/api';
 import { syncBusToFirebase } from '../services/busFirebaseSyncService';
 import SuccessModal from './SuccessModal';
 
@@ -23,7 +23,10 @@ function Buses() {
   const [sortBy, setSortBy] = useState('lastUpdated');
   const [sortOrder, setSortOrder] = useState('desc');
   const [loading, setLoading] = useState(true);
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
   const [error, setError] = useState(null);
+  const [profilesError, setProfilesError] = useState(null);
+  const [attendantProfiles, setAttendantProfiles] = useState([]);
   const [successModal, setSuccessModal] = useState({
     open: false,
     title: '',
@@ -45,12 +48,42 @@ function Buses() {
     status: 'Available',
     plateNumber: '',
     capacity: '',
-    busAttendant: '',
+    attendantProfileId: '',
     busCompanyEmail: '',
     busCompanyContact: '',
     registeredDestination: '',
     busPhoto: null
   });
+
+  const getRequestErrorMessage = (err, fallbackMessage) => {
+    const validationDetails = err?.response?.data?.detail;
+    const statusCode = err?.response?.status;
+    const method = String(err?.config?.method || '').toUpperCase();
+    const url = err?.config?.url;
+
+    if (Array.isArray(validationDetails) && validationDetails.length > 0) {
+      return validationDetails
+        .map((item) => {
+          const location = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : 'field';
+          return `${location}: ${item?.msg || 'invalid value'}`;
+        })
+        .join(' | ');
+    }
+
+    const rawMessage =
+      err?.response?.data?.message ||
+      err?.response?.data?.detail ||
+      err?.message ||
+      fallbackMessage;
+
+    if (statusCode || url) {
+      const requestLabel = [method, url].filter(Boolean).join(' ');
+      const statusLabel = statusCode ? `[${statusCode}] ` : '';
+      return `${statusLabel}${requestLabel ? `${requestLabel} - ` : ''}${rawMessage}`;
+    }
+
+    return rawMessage;
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -77,7 +110,7 @@ function Buses() {
         }
 
         console.error('Error loading buses from API:', err);
-        setError('Unable to reach the API. Please check your connection or login session.');
+        setError(getRequestErrorMessage(err, 'Failed to load buses from API.'));
         setBuses([]);
         setArchivedBuses([]);
       } finally {
@@ -88,6 +121,47 @@ function Buses() {
     };
 
     loadInitialBuses();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadAttendantProfiles = async () => {
+      setLoadingProfiles(true);
+      setProfilesError(null);
+
+      try {
+        const profiles = await fetchProfiles();
+
+        if (!isMounted) {
+          return;
+        }
+
+        const attendantOnlyProfiles = profiles.filter((profile) =>
+          String(profile.role || '').toLowerCase().includes('attendant')
+        );
+
+        setAttendantProfiles(attendantOnlyProfiles.length > 0 ? attendantOnlyProfiles : profiles);
+      } catch (err) {
+        if (!isMounted) {
+          return;
+        }
+
+        console.warn('Unable to load attendant profiles from /profiles:', err);
+        setProfilesError(getRequestErrorMessage(err, 'Failed to load attendant profiles.'));
+        setAttendantProfiles([]);
+      } finally {
+        if (isMounted) {
+          setLoadingProfiles(false);
+        }
+      }
+    };
+
+    loadAttendantProfiles();
 
     return () => {
       isMounted = false;
@@ -183,21 +257,6 @@ function Buses() {
   const handleSortOrderToggle = () => {
     setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
     setCurrentPage(1);
-  };
-
-  const getRequestErrorMessage = (err, fallbackMessage) => {
-    const validationDetails = err?.response?.data?.detail;
-
-    if (Array.isArray(validationDetails) && validationDetails.length > 0) {
-      return validationDetails
-        .map((item) => {
-          const location = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : 'field';
-          return `${location}: ${item?.msg || 'invalid value'}`;
-        })
-        .join(' | ');
-    }
-
-    return err?.response?.data?.message || err?.message || fallbackMessage;
   };
 
   const renderRouteWithChevron = (routeValue) => {
@@ -519,7 +578,7 @@ function Buses() {
     }
 
     if (!editingBus.busNumber || !editingBus.route || !editingBus.busCompany ||
-      !editingBus.plateNumber || !editingBus.capacity || !editingBus.busAttendant ||
+      !editingBus.plateNumber || !editingBus.capacity ||
       !editingBus.busCompanyEmail || !editingBus.busCompanyContact ||
       !editingBus.registeredDestination) {
       alert('Please fill in all required fields before saving.');
@@ -531,8 +590,16 @@ function Buses() {
       setError(null);
 
       const payload = {
-        ...editingBus,
+        busNumber: editingBus.busNumber,
+        route: editingBus.route,
+        busCompany: editingBus.busCompany,
+        status: editingBus.status,
+        plateNumber: editingBus.plateNumber,
         capacity: parseInt(editingBus.capacity, 10),
+        busCompanyEmail: editingBus.busCompanyEmail,
+        busCompanyContact: editingBus.busCompanyContact,
+        registeredDestination: editingBus.registeredDestination,
+        busPhoto: editingBus.busPhoto,
       };
 
       const updatedBusFromApi = await updateBus(selectedBus.id, payload);
@@ -593,7 +660,7 @@ function Buses() {
       status: 'Available',
       plateNumber: '',
       capacity: '',
-      busAttendant: '',
+      attendantProfileId: '',
       busCompanyEmail: '',
       busCompanyContact: '',
       registeredDestination: '',
@@ -647,7 +714,7 @@ function Buses() {
 
     // Validate required fields
     if (!newBus.busNumber || !newBus.route || !newBus.busCompany ||
-      !newBus.plateNumber || !newBus.capacity || !newBus.busAttendant ||
+      !newBus.plateNumber || !newBus.capacity ||
       !newBus.busCompanyEmail || !newBus.busCompanyContact ||
       !newBus.registeredDestination) {
       alert('Please fill in all required fields');
@@ -658,8 +725,16 @@ function Buses() {
       setLoading(true);
       setError(null);
       const newBusData = {
-        ...newBus,
-        capacity: parseInt(newBus.capacity)
+        busNumber: newBus.busNumber,
+        route: newBus.route,
+        busCompany: newBus.busCompany,
+        status: newBus.status,
+        plateNumber: newBus.plateNumber,
+        capacity: parseInt(newBus.capacity, 10),
+        busCompanyEmail: newBus.busCompanyEmail,
+        busCompanyContact: newBus.busCompanyContact,
+        registeredDestination: newBus.registeredDestination,
+        busPhoto: newBus.busPhoto,
       };
       const createdBusFromApi = await createBus(newBusData);
       const mergedCreatedBus = {
@@ -1186,24 +1261,36 @@ function Buses() {
                 </div>
 
                 <div className="form-section highlight-section">
-                  <h3>Bus Attendant (Source of Truth)</h3>
+                  <h3>Bus Attendant Assignment (/profiles)</h3>
 
                   <div className="form-group">
-                    <label htmlFor="busAttendant">Assigned Bus Attendant *</label>
-                    <input
-                      type="text"
-                      id="busAttendant"
-                      name="busAttendant"
-                      value={newBus.busAttendant}
+                    <label htmlFor="attendantProfileId">Bus Attendant Profile</label>
+                    <select
+                      id="attendantProfileId"
+                      name="attendantProfileId"
+                      value={newBus.attendantProfileId}
                       onChange={handleInputChange}
-                      placeholder="e.g., Juan Dela Cruz"
-                      required
-                    />
+                    >
+                      <option value="">
+                        {loadingProfiles ? 'Loading profiles...' : 'Select attendant profile (optional)'}
+                      </option>
+                      {attendantProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.fullName} ({profile.id})
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <p className="info-note">
-                    * The bus attendant is the primary source of truth for all bus information and operations.
+                    This module creates buses via /busses only. Assigning a bus attendant is handled separately in the /profiles module.
                   </p>
+
+                  {profilesError && (
+                    <p className="info-note" style={{ color: '#b91c1c' }}>
+                      Unable to load profiles: {profilesError}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1344,14 +1431,10 @@ function Buses() {
                   <h3>Bus Attendant (Source of Truth)</h3>
                   <div className="info-row">
                     <span className="info-label">Assigned Attendant:</span>
-                    {isEditingDetails ? (
-                      <input className="inline-edit-input" name="busAttendant" value={editingBus?.busAttendant || ''} onChange={handleEditDetailsInputChange} />
-                    ) : (
-                      <span className="info-value attendant-name">{selectedBus.busAttendant}</span>
-                    )}
+                    <span className="info-value attendant-name">{selectedBus.busAttendant}</span>
                   </div>
                   <p className="info-note">
-                    * The bus attendant is the primary source of truth for all bus information and operations.
+                    Bus attendant assignment is managed in the /profiles module.
                   </p>
                 </div>
               </div>

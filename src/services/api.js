@@ -1,7 +1,89 @@
 import axios from 'axios';
-import mockAuthData from '../data/authMockData.json';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://44.202.107.196:8080';
+const API_URL = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+const BUS_ENDPOINTS = ['buses', 'busses'];
+export const API_SESSION_EXPIRED_EVENT = 'auth:session-expired';
+let authInterceptorRegistered = false;
+
+if (!API_URL) {
+  throw new Error('Missing VITE_API_URL. Set it in your environment before running the app.');
+}
+
+const clearApiAuthStorage = () => {
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('refreshToken');
+  localStorage.removeItem('user');
+};
+
+const parseJwtPayload = (token) => {
+  const parts = String(token || '').split('.');
+
+  if (parts.length < 2) {
+    return null;
+  }
+
+  try {
+    const payloadSegment = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const normalizedPayload = payloadSegment.padEnd(payloadSegment.length + ((4 - payloadSegment.length % 4) % 4), '=');
+    const decoded = globalThis?.atob ? globalThis.atob(normalizedPayload) : null;
+
+    if (!decoded) {
+      return null;
+    }
+
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+};
+
+const isTokenExpired = (token) => {
+  const payload = parseJwtPayload(token);
+  const exp = Number(payload?.exp);
+
+  if (!Number.isFinite(exp)) {
+    return false;
+  }
+
+  const nowInSeconds = Math.floor(Date.now() / 1000);
+  return exp <= nowInSeconds;
+};
+
+const shouldIgnoreSessionExpiredSignal = (config) => {
+  const url = String(config?.url || '');
+  return url.includes('/auth/login');
+};
+
+const notifySessionExpired = (error) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const message = error?.response?.data?.message || error?.response?.data?.detail || 'Session expired. Please login again.';
+
+  window.dispatchEvent(
+    new CustomEvent(API_SESSION_EXPIRED_EVENT, {
+      detail: { message },
+    })
+  );
+};
+
+if (!authInterceptorRegistered) {
+  axios.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      const statusCode = error?.response?.status;
+      if (statusCode === 401 && !shouldIgnoreSessionExpiredSignal(error?.config)) {
+        clearApiAuthStorage();
+        notifySessionExpired(error);
+      }
+
+      return Promise.reject(error);
+    }
+  );
+
+  authInterceptorRegistered = true;
+}
 
 const getAuthHeaders = () => {
   const accessToken = localStorage.getItem('accessToken');
@@ -73,10 +155,6 @@ const mapUiStatusToApi = (rawStatus) => {
     return 'in_transit';
   }
 
-  if (normalized === 'offline') {
-    return 'offline';
-  }
-
   if (normalized === 'inactive' || normalized === 'maintenance' || normalized === 'archived') {
     return 'offline';
   }
@@ -99,34 +177,6 @@ const splitRoute = (routeValue) => {
     origin: parts[0],
     destination: parts.slice(1).join(' - '),
   };
-};
-
-const generateSecureAttendantId = () => {
-  const length = 28;
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const cryptoApi = globalThis?.crypto;
-
-  if (cryptoApi?.getRandomValues) {
-    const bytes = new Uint8Array(length);
-    cryptoApi.getRandomValues(bytes);
-    return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('');
-  }
-
-  let fallback = '';
-  while (fallback.length < length) {
-    fallback += Math.random().toString(36).slice(2);
-  }
-
-  return fallback.slice(0, length);
-};
-
-const buildAttendantId = ({ attendantId }) => {
-  const directId = String(attendantId || '').trim();
-  if (directId) {
-    return directId;
-  }
-
-  return generateSecureAttendantId();
 };
 
 const normalizeTimestamp = (value) => {
@@ -235,6 +285,72 @@ const extractSingleBus = (payload) => {
   return payload;
 };
 
+const normalizeProfile = (profile, index) => {
+  const profileId = getFirstDefinedValue(profile, ['id', 'profile_id', 'uid', 'user_id', '_id'], index + 1);
+  const firstName = String(getFirstDefinedValue(profile, ['first_name', 'firstName', 'given_name'], '')).trim();
+  const lastName = String(getFirstDefinedValue(profile, ['last_name', 'lastName', 'family_name'], '')).trim();
+  const combinedName = `${firstName} ${lastName}`.trim();
+  const fullName = String(getFirstDefinedValue(profile, ['full_name', 'fullName', 'name', 'display_name'], combinedName)).trim();
+  const role = String(getFirstDefinedValue(profile, ['role', 'user_role', 'userType', 'user_type', 'type', 'account_type', 'designation'], '')).trim();
+  const assignedBusId = String(getFirstDefinedValue(profile, ['assigned_bus_id', 'bus_id', 'busId', 'assignedBusId'], '')).trim();
+
+  return {
+    id: String(profileId),
+    fullName: fullName || `Profile ${profileId}`,
+    role,
+    assignedBusId,
+    raw: profile,
+  };
+};
+
+const extractProfileArray = (payload) => {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (Array.isArray(payload?.profiles)) {
+    return payload.profiles;
+  }
+
+  if (Array.isArray(payload?.data)) {
+    return payload.data;
+  }
+
+  return [];
+};
+
+const shouldFallbackBusEndpoint = (error) => {
+  const statusCode = error?.response?.status;
+  return statusCode === 404;
+};
+
+const requestWithBusEndpointFallback = async (requestBuilder) => {
+  let lastError = null;
+
+  for (let index = 0; index < BUS_ENDPOINTS.length; index += 1) {
+    const endpoint = BUS_ENDPOINTS[index];
+
+    try {
+      return await requestBuilder(endpoint);
+    } catch (error) {
+      lastError = error;
+      const isLastEndpoint = index === BUS_ENDPOINTS.length - 1;
+
+      if (isLastEndpoint || !shouldFallbackBusEndpoint(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
+};
+
+const requestMyProfile = async () => {
+  return axios.get(`${API_URL}/profiles/me`, {
+    headers: getAuthHeaders(),
+  });
+};
+
 const mapBusToApiPayload = (busData = {}, options = { partial: false }) => {
   const payload = {};
   const { partial } = options;
@@ -263,8 +379,6 @@ const mapBusToApiPayload = (busData = {}, options = { partial: false }) => {
   assignMappedValue('destination', ['destination', 'registeredDestination', 'route_destination'], (value) => String(value || '').trim());
   assignMappedValue('company_email', ['company_email', 'busCompanyEmail', 'email']);
   assignMappedValue('company_contact', ['company_contact', 'busCompanyContact', 'contact_number']);
-  assignMappedValue('attendant_name', ['attendant_name', 'busAttendant', 'bus_attendant', 'attendantName']);
-  assignMappedValue('attendant_id', ['attendant_id', 'attendantId'], (value) => String(value || '').trim());
 
   if (!partial) {
     if (!payload.bus_name || !String(payload.bus_name).trim()) {
@@ -286,26 +400,6 @@ const mapBusToApiPayload = (busData = {}, options = { partial: false }) => {
         routeParts.destination
       ) || routeParts.destination;
     }
-
-    if (!payload.attendant_id) {
-      payload.attendant_id = buildAttendantId({
-        attendantId: getFirstDefinedValue(busData, ['attendantId', 'attendant_id'], ''),
-        attendantName: getFirstDefinedValue(busData, ['busAttendant', 'bus_attendant', 'attendant_name'], ''),
-        busNumber: getFirstDefinedValue(busData, ['busNumber', 'bus_number'], ''),
-      });
-    }
-  }
-
-  if (partial && payload.attendant_id === undefined) {
-    const generatedAttendantId = buildAttendantId({
-      attendantId: getFirstDefinedValue(busData, ['attendantId', 'attendant_id'], ''),
-      attendantName: getFirstDefinedValue(busData, ['busAttendant', 'bus_attendant', 'attendant_name'], ''),
-      busNumber: getFirstDefinedValue(busData, ['busNumber', 'bus_number'], ''),
-    });
-
-    if (generatedAttendantId) {
-      payload.attendant_id = generatedAttendantId;
-    }
   }
 
   return payload;
@@ -313,55 +407,119 @@ const mapBusToApiPayload = (busData = {}, options = { partial: false }) => {
 
 // --- AUTH FUNCTIONS ---
 export const loginAPI = async (email, password) => {
-  const response = await axios.post(`${API_URL}/auth/login`, { email, password });
-  return response.data;
+  const response = await axios.post(`${API_URL}/profiles/login`, {
+    username: email,
+    password,
+  });
+
+  const responseData = response.data || {};
+  const accessToken = responseData.access_token || responseData.accessToken || '';
+  const refreshToken = responseData.refresh_token || responseData.refreshToken || '';
+  const user = responseData.user || responseData.profile || null;
+
+  return {
+    accessToken,
+    refreshToken,
+    user,
+    raw: responseData,
+  };
 };
 
 export const logoutAPI = async () => {
-  return await axios.post(`${API_URL}/auth/logout`);
+  return axios.post(`${API_URL}/auth/logout`);
 };
 
 export const getCurrentUser = async () => {
+  const accessToken = localStorage.getItem('accessToken');
+
+  if (!accessToken) {
+    clearApiAuthStorage();
+    return null;
+  }
+
+  if (isTokenExpired(accessToken)) {
+    clearApiAuthStorage();
+    return null;
+  }
+
   try {
+    const response = await requestMyProfile();
+    const profile = response?.data || null;
+
+    if (profile) {
+      localStorage.setItem('user', JSON.stringify(profile));
+      return profile;
+    }
+
     const savedUser = localStorage.getItem('user');
     return savedUser ? JSON.parse(savedUser) : null;
-  } catch (error) {
+  } catch {
+    clearApiAuthStorage();
     return null;
+  }
+};
+
+export const fetchProfiles = async (params = {}) => {
+  try {
+    const response = await axios.get(`${API_URL}/profiles/`, {
+      params,
+      headers: getAuthHeaders(),
+    });
+
+    const rawProfiles = extractProfileArray(response.data);
+    return rawProfiles.map((profile, index) => normalizeProfile(profile, index));
+  } catch (error) {
+    if (error?.response?.status === 405) {
+      const routeError = new Error('Profiles listing is not available on this backend. Available routes include /profiles/login and /profiles/me.');
+      routeError.response = error.response;
+      routeError.config = error.config;
+      throw routeError;
+    }
+
+    throw error;
   }
 };
 
 // --- BUS FUNCTIONS (Add these to fix the Buses page crash) ---
 export const fetchBuses = async (params = {}) => {
-  const response = await axios.get(`${API_URL}/buses/`, {
-    params,
-    headers: getAuthHeaders(),
-  });
+  const response = await requestWithBusEndpointFallback((endpoint) =>
+    axios.get(`${API_URL}/${endpoint}/`, {
+      params,
+      headers: getAuthHeaders(),
+    })
+  );
 
   const rawBuses = extractBusArray(response.data);
   return rawBuses.map((bus, index) => normalizeBus(bus, index));
 };
 
 export const createBus = async (busData) => {
-  const response = await axios.post(`${API_URL}/buses/`, mapBusToApiPayload(busData, { partial: false }), {
-    headers: getAuthHeaders(),
-  });
+  const response = await requestWithBusEndpointFallback((endpoint) =>
+    axios.post(`${API_URL}/${endpoint}/`, mapBusToApiPayload(busData, { partial: false }), {
+      headers: getAuthHeaders(),
+    })
+  );
 
   const createdBus = extractSingleBus(response.data);
   return normalizeBus(createdBus || busData, 0);
 };
 
 export const updateBus = async (id, busData) => {
-  const response = await axios.put(`${API_URL}/buses/${id}`, mapBusToApiPayload(busData, { partial: true }), {
-    headers: getAuthHeaders(),
-  });
+  const response = await requestWithBusEndpointFallback((endpoint) =>
+    axios.put(`${API_URL}/${endpoint}/${id}`, mapBusToApiPayload(busData, { partial: true }), {
+      headers: getAuthHeaders(),
+    })
+  );
 
   const updatedBus = extractSingleBus(response.data);
   return normalizeBus(updatedBus || { id, ...busData }, 0);
 };
 
 export const deleteBus = async (id) => {
-  const response = await axios.delete(`${API_URL}/buses/${id}`, {
-    headers: getAuthHeaders(),
-  });
+  const response = await requestWithBusEndpointFallback((endpoint) =>
+    axios.delete(`${API_URL}/${endpoint}/${id}`, {
+      headers: getAuthHeaders(),
+    })
+  );
   return response.data;
 };

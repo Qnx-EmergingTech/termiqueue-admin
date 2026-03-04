@@ -7,11 +7,12 @@ function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, authNotice, clearAuthNotice } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    clearAuthNotice();
     setLoading(true);
 
     if (!email || !password) {
@@ -38,6 +39,12 @@ function Login() {
         </div>
 
         <form onSubmit={handleSubmit} className="login-form">
+          {authNotice && (
+            <div className="error-message">
+              {authNotice}
+            </div>
+          )}
+
           {error && (
             <div className="error-message">
               {error}
