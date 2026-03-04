@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import '../styles/Login.scss';
 
 function Login() {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -15,13 +15,13 @@ function Login() {
     clearAuthNotice();
     setLoading(true);
 
-    if (!email || !password) {
-      setError('Please enter both email and password');
+    if (!username || !password) {
+      setError('Please enter both username/email and password');
       setLoading(false);
       return;
     }
 
-    const result = await login(email, password);
+    const result = await login(username, password);
 
     if (!result.success) {
       setError(result.error);
@@ -52,15 +52,15 @@ function Login() {
           )}
 
           <div className="form-group">
-            <label htmlFor="email">Email</label>
+            <label htmlFor="username">Username or Email</label>
             <input
-              type="email"
-              id="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter your email"
+              type="text"
+              id="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Enter your username or email"
               disabled={loading}
-              autoComplete="email"
+              autoComplete="username"
             />
           </div>
 
@@ -88,7 +88,7 @@ function Login() {
 
         <div className="login-footer">
           <p className="demo-info">
-            <strong>Demo Mode:</strong> Enter any email and password to login
+            <strong>Demo Mode:</strong> Enter any username/email and password to login
           </p>
         </div>
       </div>

@@ -1,8 +1,12 @@
 import axios from 'axios';
+import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
+import { db, firebaseInitialized } from '../firebase';
 
 const API_URL = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
 const BUS_ENDPOINTS = ['buses', 'busses'];
 export const API_SESSION_EXPIRED_EVENT = 'auth:session-expired';
+const MAX_SESSION_AGE_MS = 12 * 60 * 60 * 1000;
+const SESSION_STARTED_AT_KEY = 'sessionStartedAt';
 let authInterceptorRegistered = false;
 
 if (!API_URL) {
@@ -13,6 +17,7 @@ const clearApiAuthStorage = () => {
   localStorage.removeItem('accessToken');
   localStorage.removeItem('refreshToken');
   localStorage.removeItem('user');
+  localStorage.removeItem(SESSION_STARTED_AT_KEY);
 };
 
 const parseJwtPayload = (token) => {
@@ -49,9 +54,43 @@ const isTokenExpired = (token) => {
   return exp <= nowInSeconds;
 };
 
+const getSessionStartedAt = (token) => {
+  const startedAtRaw = localStorage.getItem(SESSION_STARTED_AT_KEY);
+  const startedAt = Number(startedAtRaw);
+
+  if (Number.isFinite(startedAt) && startedAt > 0) {
+    return startedAt;
+  }
+
+  const payload = parseJwtPayload(token);
+  const issuedAtSeconds = Number(payload?.iat);
+  if (Number.isFinite(issuedAtSeconds) && issuedAtSeconds > 0) {
+    return issuedAtSeconds * 1000;
+  }
+
+  return null;
+};
+
+const ensureSessionStartedAt = (token) => {
+  const existing = getSessionStartedAt(token);
+  if (existing) {
+    localStorage.setItem(SESSION_STARTED_AT_KEY, String(existing));
+    return existing;
+  }
+
+  const now = Date.now();
+  localStorage.setItem(SESSION_STARTED_AT_KEY, String(now));
+  return now;
+};
+
+const isMaxSessionAgeExceeded = (token) => {
+  const startedAt = ensureSessionStartedAt(token);
+  return Date.now() - startedAt > MAX_SESSION_AGE_MS;
+};
+
 const shouldIgnoreSessionExpiredSignal = (config) => {
   const url = String(config?.url || '');
-  return url.includes('/auth/login');
+  return url.includes('/auth/login') || url.includes('/profiles/login');
 };
 
 const notifySessionExpired = (error) => {
@@ -73,7 +112,13 @@ if (!authInterceptorRegistered) {
     (response) => response,
     (error) => {
       const statusCode = error?.response?.status;
-      if (statusCode === 401 && !shouldIgnoreSessionExpiredSignal(error?.config)) {
+      const hasAuthorizationHeader = Boolean(
+        error?.config?.headers?.Authorization ||
+        error?.config?.headers?.authorization ||
+        localStorage.getItem('accessToken')
+      );
+
+      if (statusCode === 401 && hasAuthorizationHeader && !shouldIgnoreSessionExpiredSignal(error?.config)) {
         clearApiAuthStorage();
         notifySessionExpired(error);
       }
@@ -106,6 +151,263 @@ const getFirstDefinedValue = (source, keys, fallback = '') => {
   }
 
   return fallback;
+};
+
+const extractProfileObject = (payload) => {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  if (payload.profile && typeof payload.profile === 'object') {
+    return payload.profile;
+  }
+
+  if (payload.user && typeof payload.user === 'object') {
+    return payload.user;
+  }
+
+  if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
+    const nested = extractProfileObject(payload.data);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  if (
+    payload.id !== undefined ||
+    payload._id !== undefined ||
+    payload.uid !== undefined ||
+    payload.user_id !== undefined ||
+    payload.username !== undefined ||
+    payload.email !== undefined ||
+    payload.user_type !== undefined ||
+    payload.role !== undefined
+  ) {
+    return payload;
+  }
+
+  return null;
+};
+
+const normalizeAuthenticatedUser = (profile) => {
+  if (!profile || typeof profile !== 'object') {
+    return null;
+  }
+
+  const firstName = String(getFirstDefinedValue(profile, ['first_name', 'firstName', 'given_name'], '')).trim();
+  const lastName = String(getFirstDefinedValue(profile, ['last_name', 'lastName', 'family_name'], '')).trim();
+  const combinedName = `${firstName} ${lastName}`.trim();
+  const name = String(
+    getFirstDefinedValue(
+      profile,
+      ['name', 'full_name', 'fullName', 'display_name', 'username', 'email'],
+      combinedName || 'User'
+    )
+  ).trim() || 'User';
+  const role = String(
+    getFirstDefinedValue(
+      profile,
+      ['role', 'user_role', 'userType', 'user_type', 'type', 'account_type', 'designation'],
+      'User'
+    )
+  ).trim() || 'User';
+
+  return {
+    ...profile,
+    id: String(getFirstDefinedValue(profile, ['id', '_id', 'uid', 'user_id'], profile.id || '')),
+    name,
+    role,
+  };
+};
+
+const getUserIdFromToken = (token) => {
+  const payload = parseJwtPayload(token);
+  return String(
+    getFirstDefinedValue(
+      payload,
+      ['uid', 'user_id', 'sub', 'id'],
+      ''
+    ) || ''
+  ).trim();
+};
+
+const hasDisplayProfileFields = (profile) => {
+  if (!profile || typeof profile !== 'object') {
+    return false;
+  }
+
+  const firstName = String(profile.first_name || profile.firstName || '').trim();
+  const lastName = String(profile.last_name || profile.lastName || '').trim();
+  const userType = String(profile.user_type || profile.userType || profile.role || '').trim();
+
+  return !!(firstName && lastName && userType);
+};
+
+const tryHydrateProfileFromProfilesApi = async (profile, token) => {
+  const normalized = normalizeAuthenticatedUser(profile);
+
+  if (hasDisplayProfileFields(normalized)) {
+    return normalized;
+  }
+
+  try {
+    const response = await axios.get(`${API_URL}/profiles/`, {
+      headers: getAuthHeaders(),
+    });
+
+    const rawProfiles = extractProfileArray(response?.data);
+    if (!Array.isArray(rawProfiles) || rawProfiles.length === 0) {
+      return normalized;
+    }
+
+    const tokenPayload = parseJwtPayload(token) || {};
+    const baseCandidates = [
+      String(normalized?.id || '').trim(),
+      String(normalized?.uid || '').trim(),
+      String(normalized?.user_id || '').trim(),
+      String(normalized?.name || '').trim(),
+      String(normalized?.username || '').trim(),
+      String(normalized?.username_lower || '').trim(),
+      String(normalized?.email || '').trim(),
+      String(tokenPayload?.sub || '').trim(),
+      String(tokenPayload?.uid || '').trim(),
+      String(tokenPayload?.user_id || '').trim(),
+      String(tokenPayload?.name || '').trim(),
+      String(tokenPayload?.username || '').trim(),
+      String(tokenPayload?.preferred_username || '').trim(),
+      String(tokenPayload?.email || '').trim(),
+    ].filter(Boolean);
+    const emailLocalPartCandidates = baseCandidates
+      .filter((value) => value.includes('@'))
+      .map((value) => value.split('@')[0]?.trim())
+      .filter(Boolean);
+    const candidates = [...new Set([...baseCandidates, ...emailLocalPartCandidates].map((value) => value.toLowerCase()))];
+
+    if (candidates.length === 0) {
+      return normalized;
+    }
+
+    const matchedRawProfile = rawProfiles.find((item) => {
+      const source = extractProfileObject(item) || item;
+      const values = [
+        String(source?.id || '').trim(),
+        String(source?._id || '').trim(),
+        String(source?.uid || '').trim(),
+        String(source?.user_id || '').trim(),
+        String(source?.name || '').trim(),
+        String(source?.username || '').trim(),
+        String(source?.username_lower || '').trim(),
+        String(source?.email || '').trim(),
+        String(source?.email_lower || '').trim(),
+      ].filter(Boolean).map((value) => value.toLowerCase());
+
+      return values.some((value) => candidates.includes(value));
+    });
+
+    if (!matchedRawProfile) {
+      return normalized;
+    }
+
+    return normalizeAuthenticatedUser({
+      ...normalized,
+      ...matchedRawProfile,
+    });
+  } catch {
+    return normalized;
+  }
+};
+
+const tryHydrateProfileFromFirestore = async (profile, token) => {
+  const normalized = normalizeAuthenticatedUser(profile);
+
+  if (hasDisplayProfileFields(normalized)) {
+    return normalized;
+  }
+
+  if (!firebaseInitialized || !db) {
+    return normalized;
+  }
+
+  const docId = String(
+    getFirstDefinedValue(
+      normalized,
+      ['uid', 'user_id', 'id', '_id'],
+      getUserIdFromToken(token)
+    ) || ''
+  ).trim();
+
+  if (!docId) {
+    return normalized;
+  }
+
+  try {
+    const profileRef = doc(db, 'profiles', docId);
+    const profileSnap = await getDoc(profileRef);
+
+    if (profileSnap.exists()) {
+      const firestoreProfile = profileSnap.data() || {};
+      return normalizeAuthenticatedUser({
+        ...normalized,
+        ...firestoreProfile,
+        uid: normalized?.uid || normalized?.id || docId,
+        user_id: normalized?.user_id || docId,
+        id: normalized?.id || docId,
+      });
+    }
+  } catch {
+    // Continue to query-based fallback below.
+  }
+
+  const tokenPayload = parseJwtPayload(token) || {};
+  const rawCandidates = [
+    normalized?.username,
+    normalized?.username_lower,
+    normalized?.email,
+    tokenPayload?.preferred_username,
+    tokenPayload?.username,
+    tokenPayload?.email,
+    tokenPayload?.sub,
+  ];
+  const candidateValues = [...new Set(rawCandidates.map((value) => String(value || '').trim()).filter(Boolean))];
+
+  if (candidateValues.length === 0) {
+    return normalized;
+  }
+
+  const profilesRef = collection(db, 'profiles');
+
+  for (const candidate of candidateValues) {
+    const lowered = candidate.toLowerCase();
+    const strategies = [
+      query(profilesRef, where('username', '==', candidate), limit(1)),
+      query(profilesRef, where('username_lower', '==', lowered), limit(1)),
+      query(profilesRef, where('email', '==', candidate), limit(1)),
+      query(profilesRef, where('email_lower', '==', lowered), limit(1)),
+    ];
+
+    for (const strategy of strategies) {
+      try {
+        const snap = await getDocs(strategy);
+        if (snap.empty) {
+          continue;
+        }
+
+        const matchedDoc = snap.docs[0];
+        const firestoreProfile = matchedDoc.data() || {};
+        return normalizeAuthenticatedUser({
+          ...normalized,
+          ...firestoreProfile,
+          uid: normalized?.uid || normalized?.id || matchedDoc.id,
+          user_id: normalized?.user_id || matchedDoc.id,
+          id: normalized?.id || matchedDoc.id,
+        });
+      } catch {
+        // Try next strategy/candidate.
+      }
+    }
+  }
+
+  return normalized;
 };
 
 const mapApiStatusToUi = (rawStatus) => {
@@ -289,13 +591,25 @@ const normalizeProfile = (profile, index) => {
   const profileId = getFirstDefinedValue(profile, ['id', 'profile_id', 'uid', 'user_id', '_id'], index + 1);
   const firstName = String(getFirstDefinedValue(profile, ['first_name', 'firstName', 'given_name'], '')).trim();
   const lastName = String(getFirstDefinedValue(profile, ['last_name', 'lastName', 'family_name'], '')).trim();
+  const username = String(getFirstDefinedValue(profile, ['username', 'user_name', 'handle'], '')).trim();
+  const email = String(getFirstDefinedValue(profile, ['email', 'mail'], '')).trim();
   const combinedName = `${firstName} ${lastName}`.trim();
   const fullName = String(getFirstDefinedValue(profile, ['full_name', 'fullName', 'name', 'display_name'], combinedName)).trim();
-  const role = String(getFirstDefinedValue(profile, ['role', 'user_role', 'userType', 'user_type', 'type', 'account_type', 'designation'], '')).trim();
+  const userType = String(getFirstDefinedValue(profile, ['user_type', 'userType', 'type', 'account_type', 'role', 'user_role', 'designation'], '')).trim();
+  const role = String(getFirstDefinedValue(profile, ['role', 'user_role', 'userType', 'user_type', 'type', 'account_type', 'designation'], userType)).trim();
+  const isPrivileged = Boolean(getFirstDefinedValue(profile, ['is_privileged', 'isPrivileged'], false));
+  const inQueue = Boolean(getFirstDefinedValue(profile, ['in_queue', 'inQueue'], false));
   const assignedBusId = String(getFirstDefinedValue(profile, ['assigned_bus_id', 'bus_id', 'busId', 'assignedBusId'], '')).trim();
 
   return {
     id: String(profileId),
+    first_name: firstName,
+    last_name: lastName,
+    username,
+    email,
+    user_type: userType,
+    is_privileged: isPrivileged,
+    in_queue: inQueue,
     fullName: fullName || `Profile ${profileId}`,
     role,
     assignedBusId,
@@ -377,6 +691,8 @@ const mapBusToApiPayload = (busData = {}, options = { partial: false }) => {
   assignMappedValue('status', ['status', 'bus_status'], (value) => mapUiStatusToApi(value));
   assignMappedValue('origin', ['origin', 'route_origin'], (value) => String(value || '').trim());
   assignMappedValue('destination', ['destination', 'registeredDestination', 'route_destination'], (value) => String(value || '').trim());
+  assignMappedValue('attendant_name', ['attendant_name', 'busAttendant', 'bus_attendant', 'attendantName'], (value) => String(value || '').trim());
+  assignMappedValue('attendant_id', ['attendant_id', 'attendantId'], (value) => String(value || '').trim());
   assignMappedValue('company_email', ['company_email', 'busCompanyEmail', 'email']);
   assignMappedValue('company_contact', ['company_contact', 'busCompanyContact', 'contact_number']);
 
@@ -406,16 +722,32 @@ const mapBusToApiPayload = (busData = {}, options = { partial: false }) => {
 };
 
 // --- AUTH FUNCTIONS ---
-export const loginAPI = async (email, password) => {
+export const loginAPI = async (usernameOrEmail, password) => {
   const response = await axios.post(`${API_URL}/profiles/login`, {
-    username: email,
+    username: usernameOrEmail,
     password,
   });
 
-  const responseData = response.data || {};
-  const accessToken = responseData.access_token || responseData.accessToken || '';
-  const refreshToken = responseData.refresh_token || responseData.refreshToken || '';
-  const user = responseData.user || responseData.profile || null;
+  const rawPayload = response.data || {};
+  const responseData =
+    rawPayload?.data && typeof rawPayload.data === 'object' && !Array.isArray(rawPayload.data)
+      ? rawPayload.data
+      : rawPayload;
+  const accessToken = String(
+    getFirstDefinedValue(
+      responseData,
+      ['access_token', 'accessToken', 'token', 'id_token', 'idToken'],
+      getFirstDefinedValue(rawPayload, ['access_token', 'accessToken', 'token', 'id_token', 'idToken'], '')
+    ) || ''
+  );
+  const refreshToken = String(
+    getFirstDefinedValue(
+      responseData,
+      ['refresh_token', 'refreshToken'],
+      getFirstDefinedValue(rawPayload, ['refresh_token', 'refreshToken'], '')
+    ) || ''
+  );
+  const user = normalizeAuthenticatedUser(extractProfileObject(responseData) || extractProfileObject(rawPayload));
 
   return {
     accessToken,
@@ -431,35 +763,84 @@ export const logoutAPI = async () => {
 
 export const getCurrentUser = async () => {
   const accessToken = localStorage.getItem('accessToken');
+  const savedUserRaw = localStorage.getItem('user');
+
+  const getSavedUser = () => {
+    if (!savedUserRaw) {
+      return null;
+    }
+
+    try {
+      return normalizeAuthenticatedUser(JSON.parse(savedUserRaw));
+    } catch {
+      return null;
+    }
+  };
 
   if (!accessToken) {
+    const savedUser = getSavedUser();
+    if (savedUser) {
+      return savedUser;
+    }
+
+    return null;
+  }
+
+  if (isMaxSessionAgeExceeded(accessToken)) {
     clearApiAuthStorage();
     return null;
   }
 
   if (isTokenExpired(accessToken)) {
-    clearApiAuthStorage();
-    return null;
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    const savedUser = getSavedUser();
+    return savedUser || null;
   }
 
   try {
     const response = await requestMyProfile();
-    const profile = response?.data || null;
+    const extractedProfile = extractProfileObject(response?.data);
+    let profile = normalizeAuthenticatedUser(extractedProfile);
+
+    if (!hasDisplayProfileFields(profile)) {
+      profile = await tryHydrateProfileFromProfilesApi(profile, accessToken);
+    }
+
+    if (!hasDisplayProfileFields(profile)) {
+      profile = await tryHydrateProfileFromFirestore(profile, accessToken);
+    }
 
     if (profile) {
       localStorage.setItem('user', JSON.stringify(profile));
       return profile;
     }
 
-    const savedUser = localStorage.getItem('user');
-    return savedUser ? JSON.parse(savedUser) : null;
+    return getSavedUser();
   } catch {
+    const savedUser = getSavedUser();
+    if (savedUser) {
+      return savedUser;
+    }
+
     clearApiAuthStorage();
     return null;
   }
 };
 
 export const fetchProfiles = async (params = {}) => {
+  const fetchProfilesFromFirestore = async () => {
+    if (!firebaseInitialized || !db) {
+      return null;
+    }
+
+    const snapshot = await getDocs(collection(db, 'profiles'));
+    return snapshot.docs.map((docItem, index) => {
+      const data = docItem.data() || {};
+      return normalizeProfile({ id: docItem.id, ...data }, index);
+    });
+  };
+
   try {
     const response = await axios.get(`${API_URL}/profiles/`, {
       params,
@@ -470,14 +851,44 @@ export const fetchProfiles = async (params = {}) => {
     return rawProfiles.map((profile, index) => normalizeProfile(profile, index));
   } catch (error) {
     if (error?.response?.status === 405) {
-      const routeError = new Error('Profiles listing is not available on this backend. Available routes include /profiles/login and /profiles/me.');
-      routeError.response = error.response;
-      routeError.config = error.config;
-      throw routeError;
+      try {
+        const fallbackResponse = await axios.post(`${API_URL}/profiles/`, params, {
+          headers: {
+            ...getAuthHeaders(),
+            'Content-Type': 'application/json',
+          },
+        });
+
+        const rawProfiles = extractProfileArray(fallbackResponse.data);
+        return rawProfiles.map((profile, index) => normalizeProfile(profile, index));
+      } catch (postError) {
+        const firestoreProfiles = await fetchProfilesFromFirestore();
+        if (firestoreProfiles) {
+          return firestoreProfiles;
+        }
+
+        throw postError;
+      }
+    }
+
+    if (error?.response?.status === 401 || error?.response?.status === 403) {
+      const firestoreProfiles = await fetchProfilesFromFirestore();
+      if (firestoreProfiles) {
+        return firestoreProfiles;
+      }
     }
 
     throw error;
   }
+};
+
+export const fetchBusAttendants = async (params = {}) => {
+  const profiles = await fetchProfiles(params);
+
+  return profiles.filter((profile) => {
+    const typeValue = String(profile.user_type || profile.role || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    return typeValue === 'bus_attendant';
+  });
 };
 
 // --- BUS FUNCTIONS (Add these to fix the Buses page crash) ---

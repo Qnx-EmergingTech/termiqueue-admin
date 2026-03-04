@@ -1,11 +1,11 @@
 import '../styles/Header.scss';
 import qnextLogo from '../assets/qnext.svg';
-import { MdDashboard, MdAssignment, MdLogout, MdDirectionsBus } from 'react-icons/md';
+import { MdDashboard, MdAssignment, MdLogout, MdDirectionsBus, MdPeople } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 
 
 function Header({ setCurrentPage, currentPage }) {
-  const { logout, user } = useAuth();
+  const { logout } = useAuth();
 
   const handleLogout = () => {
     logout();
@@ -33,14 +33,13 @@ function Header({ setCurrentPage, currentPage }) {
               <MdDirectionsBus /> Buses
             </button>
           </li>
+          <li>
+            <button className={currentPage === 'bus-attendants' ? 'active' : ''} onClick={() => setCurrentPage('bus-attendants')}>
+              <MdPeople /> Bus Attendants
+            </button>
+          </li>
         </ul>
         <div className="user-section">
-          {user && (
-            <div className="user-info">
-              <span className="user-name">{user.name}</span>
-              <span className="user-role">{user.role}</span>
-            </div>
-          )}
           <button className="logout-btn" onClick={handleLogout}>
             <MdLogout /> Logout
           </button>

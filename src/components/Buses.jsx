@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { MdChevronRight } from 'react-icons/md';
 import '../styles/Body.scss';
 import '../styles/Requests.scss';
 import TableSkeletonRows from './TableSkeletonRows';
-import { createBus, deleteBus, fetchBuses, fetchProfiles, updateBus } from '../services/api';
+import { createBus, deleteBus, fetchBuses, updateBus } from '../services/api';
 import { syncBusToFirebase } from '../services/busFirebaseSyncService';
 import SuccessModal from './SuccessModal';
 
@@ -23,10 +23,7 @@ function Buses() {
   const [sortBy, setSortBy] = useState('lastUpdated');
   const [sortOrder, setSortOrder] = useState('desc');
   const [loading, setLoading] = useState(true);
-  const [loadingProfiles, setLoadingProfiles] = useState(false);
   const [error, setError] = useState(null);
-  const [profilesError, setProfilesError] = useState(null);
-  const [attendantProfiles, setAttendantProfiles] = useState([]);
   const [successModal, setSuccessModal] = useState({
     open: false,
     title: '',
@@ -41,6 +38,9 @@ function Buses() {
     open: false,
     busIds: [],
   });
+  const [saveConfirmModal, setSaveConfirmModal] = useState({
+    open: false,
+  });
   const [newBus, setNewBus] = useState({
     busNumber: '',
     route: '',
@@ -48,11 +48,9 @@ function Buses() {
     status: 'Available',
     plateNumber: '',
     capacity: '',
-    attendantProfileId: '',
     busCompanyEmail: '',
     busCompanyContact: '',
-    registeredDestination: '',
-    busPhoto: null
+    registeredDestination: ''
   });
 
   const getRequestErrorMessage = (err, fallbackMessage) => {
@@ -127,47 +125,6 @@ function Buses() {
     };
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadAttendantProfiles = async () => {
-      setLoadingProfiles(true);
-      setProfilesError(null);
-
-      try {
-        const profiles = await fetchProfiles();
-
-        if (!isMounted) {
-          return;
-        }
-
-        const attendantOnlyProfiles = profiles.filter((profile) =>
-          String(profile.role || '').toLowerCase().includes('attendant')
-        );
-
-        setAttendantProfiles(attendantOnlyProfiles.length > 0 ? attendantOnlyProfiles : profiles);
-      } catch (err) {
-        if (!isMounted) {
-          return;
-        }
-
-        console.warn('Unable to load attendant profiles from /profiles:', err);
-        setProfilesError(getRequestErrorMessage(err, 'Failed to load attendant profiles.'));
-        setAttendantProfiles([]);
-      } finally {
-        if (isMounted) {
-          setLoadingProfiles(false);
-        }
-      }
-    };
-
-    loadAttendantProfiles();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
   // Filter buses based on search query
   const sourceBuses = viewMode === 'active' ? buses : archivedBuses;
 
@@ -178,7 +135,6 @@ function Buses() {
       bus.route.toLowerCase().includes(query) ||
       bus.busCompany.toLowerCase().includes(query) ||
       bus.plateNumber.toLowerCase().includes(query) ||
-      bus.busAttendant.toLowerCase().includes(query) ||
       bus.status.toLowerCase().includes(query)
     );
   });
@@ -541,6 +497,27 @@ function Buses() {
     setSelectedBus(null);
     setEditingBus(null);
     setIsEditingDetails(false);
+    setSaveConfirmModal({ open: false });
+  };
+
+  const openSaveConfirmation = () => {
+    if (!editingBus) {
+      return;
+    }
+
+    if (!editingBus.busNumber || !editingBus.route || !editingBus.busCompany ||
+      !editingBus.plateNumber || !editingBus.capacity ||
+      !editingBus.busCompanyEmail || !editingBus.busCompanyContact ||
+      !editingBus.registeredDestination) {
+      alert('Please fill in all required fields before saving.');
+      return;
+    }
+
+    setSaveConfirmModal({ open: true });
+  };
+
+  const closeSaveConfirmation = () => {
+    setSaveConfirmModal({ open: false });
   };
 
   const handleEditDetailsInputChange = (event) => {
@@ -604,8 +581,8 @@ function Buses() {
 
       const updatedBusFromApi = await updateBus(selectedBus.id, payload);
       const mergedUpdatedBus = {
-        ...updatedBusFromApi,
         ...payload,
+        ...updatedBusFromApi,
         id: updatedBusFromApi?.id || selectedBus.id,
         lastUpdated: updatedBusFromApi?.lastUpdated || Date.now(),
       };
@@ -636,6 +613,7 @@ function Buses() {
         message: 'Bus details were updated successfully.',
         detail: firebaseSkipped ? 'Saved to API. Firebase sync is currently disabled.' : '',
       });
+      closeSaveConfirmation();
     } catch (err) {
       const message = getRequestErrorMessage(err, 'Failed to update bus details.');
       setError(message);
@@ -660,11 +638,9 @@ function Buses() {
       status: 'Available',
       plateNumber: '',
       capacity: '',
-      attendantProfileId: '',
       busCompanyEmail: '',
       busCompanyContact: '',
-      registeredDestination: '',
-      busPhoto: null
+      registeredDestination: ''
     });
   };
 
@@ -674,37 +650,6 @@ function Buses() {
     setNewBus(prev => ({
       ...prev,
       [name]: value
-    }));
-  };
-
-  const handleBusPhotoUpload = (e) => {
-    const file = e.target.files && e.target.files[0];
-
-    if (!file) {
-      return;
-    }
-
-    if (!file.type.startsWith('image/')) {
-      alert('Please upload a valid image file.');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const imageData = typeof reader.result === 'string' ? reader.result : null;
-
-      setNewBus((prevBus) => ({
-        ...prevBus,
-        busPhoto: imageData,
-      }));
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const removeBusPhoto = () => {
-    setNewBus((prevBus) => ({
-      ...prevBus,
-      busPhoto: null,
     }));
   };
 
@@ -734,12 +679,11 @@ function Buses() {
         busCompanyEmail: newBus.busCompanyEmail,
         busCompanyContact: newBus.busCompanyContact,
         registeredDestination: newBus.registeredDestination,
-        busPhoto: newBus.busPhoto,
       };
       const createdBusFromApi = await createBus(newBusData);
       const mergedCreatedBus = {
-        ...createdBusFromApi,
         ...newBusData,
+        ...createdBusFromApi,
         id: createdBusFromApi?.id || createdBusFromApi?.busId || Date.now(),
         lastUpdated: createdBusFromApi?.lastUpdated || Date.now(),
       };
@@ -871,6 +815,37 @@ function Buses() {
         </div>
       )}
 
+      {saveConfirmModal.open && (
+        <div className="modal-overlay confirmation-overlay" onClick={closeSaveConfirmation}>
+          <div className="modal-content confirmation-content" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Confirm Bus Update</h2>
+              <button className="close-btn" onClick={closeSaveConfirmation}>&times;</button>
+            </div>
+            <div className="modal-body">
+              <p>Save the changes you made to this bus?</p>
+              <p className="info-note">This will update bus details.</p>
+              <div className="modal-actions-row">
+                <button
+                  type="button"
+                  className="table-action-btn restore"
+                  onClick={closeSaveConfirmation}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="table-action-btn archive"
+                  onClick={handleSaveBusDetails}
+                >
+                  Confirm Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="requests-container">
         <div className="requests-header">
           <div className="header-content">
@@ -889,8 +864,8 @@ function Buses() {
               <input
                 type="text"
                 placeholder={isArchivedView
-                  ? 'Search offline buses by number, route, company, plate, attendant, or status...'
-                  : 'Search by bus number, route, company, plate, attendant, or status...'}
+                  ? 'Search offline buses by number, route, company, plate, or status...'
+                  : 'Search by bus number, route, company, plate, or status...'}
                 value={searchQuery}
                 onChange={handleSearchChange}
                 className="search-input"
@@ -1163,28 +1138,6 @@ function Buses() {
                     </select>
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="busPhoto">Upload Bus Photo</label>
-                    <input
-                      type="file"
-                      id="busPhoto"
-                      name="busPhoto"
-                      accept="image/*"
-                      onChange={handleBusPhotoUpload}
-                    />
-                  </div>
-
-                  {newBus.busPhoto && (
-                    <div className="bus-photo-placeholder add-bus-photo-preview">
-                      <img src={newBus.busPhoto} alt="Bus preview" />
-                    </div>
-                  )}
-
-                  {newBus.busPhoto && (
-                    <button type="button" className="btn-cancel remove-photo-btn" onClick={removeBusPhoto}>
-                      Remove Photo
-                    </button>
-                  )}
                 </div>
 
                 <div className="form-section">
@@ -1260,38 +1213,6 @@ function Buses() {
                   </div>
                 </div>
 
-                <div className="form-section highlight-section">
-                  <h3>Bus Attendant Assignment (/profiles)</h3>
-
-                  <div className="form-group">
-                    <label htmlFor="attendantProfileId">Bus Attendant Profile</label>
-                    <select
-                      id="attendantProfileId"
-                      name="attendantProfileId"
-                      value={newBus.attendantProfileId}
-                      onChange={handleInputChange}
-                    >
-                      <option value="">
-                        {loadingProfiles ? 'Loading profiles...' : 'Select attendant profile (optional)'}
-                      </option>
-                      {attendantProfiles.map((profile) => (
-                        <option key={profile.id} value={profile.id}>
-                          {profile.fullName} ({profile.id})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <p className="info-note">
-                    This module creates buses via /busses only. Assigning a bus attendant is handled separately in the /profiles module.
-                  </p>
-
-                  {profilesError && (
-                    <p className="info-note" style={{ color: '#b91c1c' }}>
-                      Unable to load profiles: {profilesError}
-                    </p>
-                  )}
-                </div>
               </div>
 
               <div className="form-actions">
@@ -1317,22 +1238,13 @@ function Buses() {
             </div>
 
             <div className="modal-body">
-              <div className="bus-photo-section">
-                <div className="bus-photo-placeholder">
-                  {selectedBus.busPhoto ? (
-                    <img src={selectedBus.busPhoto} alt={`Bus ${selectedBus.busNumber}`} />
-                  ) : (
-                    <div className="no-photo">
-                      <span>📷</span>
-                      <p>No photo available</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
               <div className="bus-info-grid">
                 <div className="info-section">
                   <h3>Bus Information</h3>
+                  <div className="info-row">
+                    <span className="info-label">Assigned Attendant:</span>
+                    <span className="info-value">{selectedBus.busAttendant || 'N/A'}</span>
+                  </div>
                   <div className="info-row">
                     <span className="info-label">Bus Number:</span>
                     {isEditingDetails ? (
@@ -1427,28 +1339,19 @@ function Buses() {
                   </div>
                 </div>
 
-                <div className="info-section highlight-section">
-                  <h3>Bus Attendant (Source of Truth)</h3>
-                  <div className="info-row">
-                    <span className="info-label">Assigned Attendant:</span>
-                    <span className="info-value attendant-name">{selectedBus.busAttendant}</span>
-                  </div>
-                  <p className="info-note">
-                    Bus attendant assignment is managed in the /profiles module.
-                  </p>
-                </div>
               </div>
 
               <div className="modal-actions-row">
                 {isEditingDetails ? (
                   <>
-                    <button type="button" className="table-action-btn restore" onClick={handleSaveBusDetails}>
+                    <button type="button" className="table-action-btn restore" onClick={openSaveConfirmation}>
                       Save Changes
                     </button>
                     <button
                       type="button"
                       className="table-action-btn delete"
                       onClick={() => {
+                        closeSaveConfirmation();
                         setIsEditingDetails(false);
                         setEditingBus({
                           ...selectedBus,

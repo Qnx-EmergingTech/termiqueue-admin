@@ -120,7 +120,17 @@ export const AuthProvider = ({ children }) => {
           localStorage.setItem('refreshToken', data.refreshToken);
         }
 
-        const resolvedUser = data.user || await apiGetCurrentUser();
+        let resolvedUser = null;
+
+        try {
+          resolvedUser = await apiGetCurrentUser();
+        } catch {
+          resolvedUser = null;
+        }
+
+        if (!resolvedUser && data.user) {
+          resolvedUser = data.user;
+        }
 
         if (!resolvedUser) {
           localStorage.removeItem('accessToken');
