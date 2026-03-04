@@ -11,7 +11,7 @@ import {
   MdFunctions,
   MdDashboard,
   MdDirectionsBus,
-  MdAssignment,
+  MdAltRoute,
   MdSecurity,
 } from 'react-icons/md';
 
@@ -39,9 +39,9 @@ function LearningGuidePage() {
             <div className="mini-label">Think: data editor</div>
           </article>
           <article>
-            <h3><MdAssignment /> Requests</h3>
-            <p>Review pending activation requests and approve or reject.</p>
-            <div className="mini-label">Think: decision queue</div>
+            <h3><MdAltRoute /> Routes</h3>
+            <p>Manage route geofence origins, queue destinations, and map radius previews.</p>
+            <div className="mini-label">Think: geofence + destinations</div>
           </article>
           <article>
             <h3><MdDashboard /> Dashboard</h3>
@@ -79,10 +79,10 @@ function LearningGuidePage() {
             <p><strong>Used by:</strong> Buses route/page.</p>
           </article>
           <article>
-            <h3>Requests</h3>
-            <p><strong>What:</strong> pending requests review and status actions.</p>
-            <p><strong>Why:</strong> admin approval workflow.</p>
-            <p><strong>Used by:</strong> Requests route/page.</p>
+            <h3>RoutesManagement</h3>
+            <p><strong>What:</strong> route geofence CRUD + destination linking + map preview.</p>
+            <p><strong>Why:</strong> central route creation and origin management.</p>
+            <p><strong>Used by:</strong> Routes route/page.</p>
           </article>
           <article>
             <h3>Dashboard</h3>
@@ -102,7 +102,7 @@ function LearningGuidePage() {
           <div className="flow-arrow">→</div>
           <div className="flow-node">AuthContext<br />checks admin</div>
           <div className="flow-arrow">→</div>
-          <div className="flow-node">Page UI<br />Buses / Requests / Dashboard</div>
+          <div className="flow-node">Page UI<br />Buses / Routes / Dashboard</div>
         </div>
       </section>
 
@@ -128,11 +128,11 @@ function LearningGuidePage() {
           </article>
 
           <article>
-            <h3><MdAssignment /> Requests</h3>
+            <h3><MdAltRoute /> Routes</h3>
             <ul>
-              <li>Starts from: <strong>src/data/activationRequestsData.json</strong></li>
-              <li>Mode switch: local / firebase</li>
-              <li>Supports single + batch approve/reject</li>
+              <li>Loads route geofence + queue destination APIs</li>
+              <li>Falls back to local cache when APIs are unavailable</li>
+              <li>Supports global origin + custom per-route origin mode</li>
             </ul>
           </article>
 
@@ -168,8 +168,8 @@ function LearningGuidePage() {
             <p>Moves from Active list to Archived list (safer than instant delete).</p>
           </article>
           <article>
-            <h3>Approve Request</h3>
-            <p>Status changes in UI first, then backend save attempt runs.</p>
+            <h3>Create Route</h3>
+            <p>Set origin geofence + destination, then save route record.</p>
           </article>
           <article>
             <h3>Generate Report</h3>
@@ -202,19 +202,14 @@ function LearningGuidePage() {
             <p>Used in: row actions and batch actions.</p>
           </article>
           <article>
-            <h3>handleStatusAction</h3>
-            <p>Why: approve/reject one request.</p>
-            <p>Used in: Requests modal action buttons.</p>
+            <h3>loadData (Routes)</h3>
+            <p>Why: loads routes, destinations, buses, and origin config with fallbacks.</p>
+            <p>Used in: Routes page startup and refresh paths.</p>
           </article>
           <article>
-            <h3>handleBatchStatusAction</h3>
-            <p>Why: approve/reject many requests at once.</p>
-            <p>Used in: Requests batch action bar.</p>
-          </article>
-          <article>
-            <h3>fetchDashboardBuses / fetchActivationRequests</h3>
-            <p>Why: hide local vs firebase source complexity.</p>
-            <p>Used in: Dashboard and Requests load effects.</p>
+            <h3>fetchDashboardBuses / fetchRouteGeofences</h3>
+            <p>Why: hide endpoint differences and normalization logic.</p>
+            <p>Used in: Dashboard and Routes load effects.</p>
           </article>
           <article>
             <h3>handleGenerateReport</h3>
@@ -246,13 +241,13 @@ function LearningGuidePage() {
             <p className="mission-result">You learn active ↔ archived lifecycle.</p>
           </article>
           <article>
-            <h3>Mission 3: Decision Queue</h3>
+            <h3>Mission 3: Route Setup</h3>
             <ol>
-              <li>Open Requests</li>
-              <li>Select 2 pending rows</li>
-              <li>Batch Approve or Reject</li>
+              <li>Open Routes</li>
+              <li>Create one route with destination</li>
+              <li>Open details and verify map/radius</li>
             </ol>
-            <p className="mission-result">You learn single vs batch actions.</p>
+            <p className="mission-result">You learn route + destination management flow.</p>
           </article>
           <article>
             <h3>Mission 4: Reporting</h3>
@@ -271,7 +266,7 @@ function LearningGuidePage() {
         <div className="study-list">
           <div><strong>1.</strong> App + auth flow: <strong>src/App.jsx</strong>, <strong>src/context/AuthContext.jsx</strong></div>
           <div><strong>2.</strong> Buses lifecycle: <strong>src/components/Buses.jsx</strong>, <strong>src/data/busesData.js</strong></div>
-          <div><strong>3.</strong> Requests status actions: <strong>src/components/Requests.jsx</strong>, <strong>src/services/requestsService.js</strong></div>
+          <div><strong>3.</strong> Routes management: <strong>src/components/RoutesManagement.jsx</strong>, <strong>src/services/api.js</strong></div>
           <div><strong>4.</strong> Dashboard analytics/report: <strong>src/components/Dashboard.jsx</strong></div>
         </div>
       </section>

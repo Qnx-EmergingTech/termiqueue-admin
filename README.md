@@ -58,7 +58,6 @@ Required values in `.env`:
 If you are testing locally with temporary data, edit these JSON files:
 
 - `src/data/busesData.json` — bus records used by Buses and Dashboard charts
-- `src/data/activationRequestsData.json` — account activation requests used by Requests page
 - `src/data/authMockData.json` — mock login user profile and auth error message
 
 If changes do not appear right away, clear this local storage key in the browser and refresh:
@@ -134,22 +133,28 @@ qnext-admin/
 ├── src/
 │   ├── components/      # React components
 │   │   ├── Body.jsx
+│   │   ├── BusAttendants.jsx
+│   │   ├── Buses.jsx
 │   │   ├── Dashboard.jsx
 │   │   ├── Header.jsx
+│   │   ├── LearningGuidePage.jsx
 │   │   ├── Login.jsx
 │   │   ├── NotFound.jsx
-│   │   └── Requests.jsx
+│   │   └── RoutesManagement.jsx
 │   ├── context/         # React Context providers
 │   │   └── AuthContext.jsx
 │   ├── services/        # API services
 │   │   ├── api.js
-│   │   └── authService.js
+│   │   ├── authService.js
+│   │   ├── dashboardService.js
+│   │   └── busFirebaseSyncService.js
 │   ├── utils/           # Utility functions
 │   │   └── auth.js
 │   ├── firebase.js       # Firebase app/auth/firestore initialization
 │   ├── styles/          # Component-specific styles
 │   │   ├── Body.scss
 │   │   ├── Header.scss
+│   │   ├── LearningGuide.scss
 │   │   ├── Login.scss
 │   │   └── Requests.scss
 │   ├── assets/          # Images, fonts, etc.

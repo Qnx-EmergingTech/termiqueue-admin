@@ -1,0 +1,138 @@
+@use '../App.scss' as *;
+@use 'sass:color';
+
+.confirm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1400;
+  padding: 1rem;
+}
+
+.confirm-modal {
+  width: min(560px, 100%);
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
+}
+
+.confirm-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: $primary-color;
+  color: white;
+  padding: 0.95rem 1.25rem;
+
+  h2 {
+    margin: 0;
+    font-size: 1.28rem;
+    font-weight: 700;
+  }
+}
+
+.confirm-close-btn {
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 2rem;
+  line-height: 1;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
+
+.confirm-modal-body {
+  padding: 1.15rem 1.25rem 1.25rem;
+}
+
+.confirm-message {
+  margin: 0;
+  color: $black;
+  line-height: 1.4;
+  font-size: 0.98rem;
+}
+
+.confirm-note {
+  margin: 0.7rem 0 0;
+  padding: 0.62rem 0.7rem;
+  border-radius: 8px;
+  background: $accent-color;
+  color: $faded-black;
+  font-size: 0.86rem;
+  font-style: italic;
+}
+
+.confirm-modal-actions {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.confirm-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 0.56rem 0.9rem;
+  min-width: 130px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s, filter 0.2s;
+
+  &:hover {
+    filter: brightness(0.95);
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+    filter: none;
+    transform: none;
+  }
+
+  &.cancel {
+    background: $accent-color;
+    color: $primary-color;
+    border: 1px solid $faded-alt;
+  }
+
+  &.primary {
+    background: $primary-color;
+    color: white;
+  }
+
+  &.danger {
+    background: $secondary-color;
+    color: white;
+  }
+}
+
+.confirm-close-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+@media (max-width: 768px) {
+  .confirm-modal-actions {
+    flex-direction: column;
+
+    .confirm-btn {
+      width: 100%;
+    }
+  }
+}

@@ -58,6 +58,44 @@
   flex-direction: column;
   gap: 0.5rem;
 
+  .password-input-wrapper {
+    position: relative;
+    width: 100%;
+
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding-right: 4.5rem;
+    }
+
+    .password-toggle-btn {
+      position: absolute;
+      right: 0.6rem;
+      top: 50%;
+      transform: translateY(-50%);
+      border: none;
+      background: transparent;
+      color: $primary-color;
+      font-size: 1.1rem;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0.25rem;
+      border-radius: 4px;
+
+      &:hover:not(:disabled) {
+        background: rgba($primary-color, 0.08);
+      }
+
+      &:disabled {
+        color: $disabled-color;
+        cursor: not-allowed;
+      }
+    }
+  }
+
   label {
     color: $black;
     font-weight: 600;

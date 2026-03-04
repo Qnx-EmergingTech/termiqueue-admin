@@ -46,9 +46,9 @@
 }
 
 .pill {
-  background: color.adjust($primary-color, $lightness: 56%);
+  background: $accent-color;
   color: $primary-color;
-  border: 1px solid color.adjust($primary-color, $lightness: 48%);
+  border: 1px solid $faded-alt;
   border-radius: 999px;
   padding: 0.35rem 0.7rem;
   font-size: 0.82rem;
@@ -72,8 +72,8 @@
 }
 
 .flow-node {
-  background: #f7fafb;
-  border: 1px solid #dbe9eb;
+  background: $accent-color;
+  border: 1px solid $faded-alt;
   border-radius: 10px;
   padding: 0.75rem;
   text-align: center;
@@ -153,8 +153,8 @@
   font-size: 0.78rem;
   font-weight: 600;
   color: $primary-color;
-  background: color.adjust($primary-color, $lightness: 57%);
-  border: 1px solid color.adjust($primary-color, $lightness: 48%);
+  background: $accent-color;
+  border: 1px solid $faded-alt;
 }
 
 .flow-strip {
@@ -232,7 +232,7 @@
     }
 
     &.head {
-      background: color.adjust($primary-color, $lightness: 58%);
+      background: $accent-color;
       border-top: 0;
 
       span {

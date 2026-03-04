@@ -3,9 +3,10 @@ import { MdChevronRight } from 'react-icons/md';
 import '../styles/Body.scss';
 import '../styles/Requests.scss';
 import TableSkeletonRows from './TableSkeletonRows';
-import { createBus, deleteBus, fetchBuses, updateBus } from '../services/api';
+import { createBus, deleteBus, fetchBuses, fetchQueues, updateBus } from '../services/api';
 import { syncBusToFirebase } from '../services/busFirebaseSyncService';
 import SuccessModal from './SuccessModal';
+import ConfirmationModal from './ConfirmationModal';
 
 function Buses() {
   const [buses, setBuses] = useState([]); // Use empty array [] when API is ready
@@ -24,6 +25,8 @@ function Buses() {
   const [sortOrder, setSortOrder] = useState('desc');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [queueRoutes, setQueueRoutes] = useState([]);
+  const [queueRoutesError, setQueueRoutesError] = useState(null);
   const [successModal, setSuccessModal] = useState({
     open: false,
     title: '',
@@ -52,6 +55,28 @@ function Buses() {
     busCompanyContact: '',
     registeredDestination: ''
   });
+
+  const parseRouteParts = (routeText, fallbackDestination = '') => {
+    const normalizedRoute = String(routeText || '').trim();
+    const normalizedFallbackDestination = String(fallbackDestination || '').trim();
+
+    if (!normalizedRoute) {
+      return { origin: '', destination: normalizedFallbackDestination };
+    }
+
+    const parts = normalizedRoute.split('-').map((part) => part.trim()).filter(Boolean);
+    if (parts.length < 2) {
+      return {
+        origin: parts[0] || '',
+        destination: normalizedFallbackDestination,
+      };
+    }
+
+    return {
+      origin: parts[0],
+      destination: parts.slice(1).join(' - ') || normalizedFallbackDestination,
+    };
+  };
 
   const getRequestErrorMessage = (err, fallbackMessage) => {
     const validationDetails = err?.response?.data?.detail;
@@ -124,6 +149,118 @@ function Buses() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadQueueRoutes = async () => {
+      try {
+        const routes = await fetchQueues();
+
+        if (!isMounted) {
+          return;
+        }
+
+        setQueueRoutes(Array.isArray(routes) ? routes : []);
+        setQueueRoutesError(null);
+      } catch (err) {
+        if (!isMounted) {
+          return;
+        }
+
+        console.warn('Unable to load routes from /queues:', err);
+        setQueueRoutes([]);
+        setQueueRoutesError(getRequestErrorMessage(err, 'Failed to load routes from queues endpoint.'));
+      }
+    };
+
+    loadQueueRoutes();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const routeOptions = useMemo(() => {
+    const seen = new Set();
+
+    const queueBasedOptions = queueRoutes
+      .map((routeItem) => {
+        const origin = String(routeItem?.origin || '').trim();
+        const destination = String(routeItem?.destination || '').trim();
+
+        if (!origin || !destination) {
+          return null;
+        }
+
+        return {
+          origin,
+          destination,
+          label: `${origin} → ${destination}`,
+        };
+      })
+      .filter(Boolean);
+
+    const busBasedOptions = [...buses, ...archivedBuses]
+      .map((busItem) => {
+        const routeParts = parseRouteParts(busItem?.route, busItem?.registeredDestination);
+        if (!routeParts.origin || !routeParts.destination) {
+          return null;
+        }
+
+        return {
+          origin: routeParts.origin,
+          destination: routeParts.destination,
+          label: `${routeParts.origin} → ${routeParts.destination}`,
+        };
+      })
+      .filter(Boolean);
+
+    return [...queueBasedOptions, ...busBasedOptions]
+      .map((routeOption) => {
+        const key = `${routeOption.origin}::${routeOption.destination}`.toLowerCase();
+        if (seen.has(key)) {
+          return null;
+        }
+
+        seen.add(key);
+        return routeOption;
+      })
+      .filter(Boolean);
+  }, [queueRoutes, buses, archivedBuses]);
+
+  const originOptions = useMemo(() => {
+    const uniqueOrigins = new Set(routeOptions.map((option) => option.origin));
+    return Array.from(uniqueOrigins).sort((left, right) => left.localeCompare(right));
+  }, [routeOptions]);
+
+  const destinationOptions = useMemo(() => {
+    if (!newBus.route) {
+      return [];
+    }
+
+    const destinations = new Set(
+      routeOptions
+        .filter((option) => option.origin === newBus.route)
+        .map((option) => option.destination)
+    );
+
+    return Array.from(destinations).sort((left, right) => left.localeCompare(right));
+  }, [routeOptions, newBus.route]);
+
+  const editDestinationOptions = useMemo(() => {
+    if (!editingBus?.route) {
+      return [];
+    }
+
+    const destinations = new Set(
+      routeOptions
+        .filter((option) => option.origin === editingBus.route)
+        .map((option) => option.destination)
+    );
+
+    return Array.from(destinations).sort((left, right) => left.localeCompare(right));
+  }, [routeOptions, editingBus?.route]);
 
   // Filter buses based on search query
   const sourceBuses = viewMode === 'active' ? buses : archivedBuses;
@@ -482,9 +619,13 @@ function Buses() {
 
   // Handle row click
   const handleRowClick = (bus) => {
+    const routeParts = parseRouteParts(bus.route, bus.registeredDestination);
+
     setSelectedBus(bus);
     setEditingBus({
       ...bus,
+      route: routeParts.origin,
+      registeredDestination: routeParts.destination,
       capacity: String(bus.capacity ?? ''),
     });
     setIsEditingDetails(false);
@@ -523,10 +664,20 @@ function Buses() {
   const handleEditDetailsInputChange = (event) => {
     const { name, value } = event.target;
 
-    setEditingBus((previousBus) => ({
-      ...previousBus,
-      [name]: value,
-    }));
+    setEditingBus((previousBus) => {
+      if (name === 'route') {
+        return {
+          ...previousBus,
+          route: value,
+          registeredDestination: '',
+        };
+      }
+
+      return {
+        ...previousBus,
+        [name]: value,
+      };
+    });
   };
 
   const applyUpdatedBusToCollections = (updatedBus) => {
@@ -647,10 +798,21 @@ function Buses() {
   // Handle input change in add bus form
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setNewBus(prev => ({
-      ...prev,
-      [name]: value
-    }));
+
+    setNewBus((prev) => {
+      if (name === 'route') {
+        return {
+          ...prev,
+          route: value,
+          registeredDestination: '',
+        };
+      }
+
+      return {
+        ...prev,
+        [name]: value,
+      };
+    });
   };
 
   // Handle form submit
@@ -745,106 +907,40 @@ function Buses() {
         onClose={() => setSuccessModal({ open: false, title: '', message: '', detail: '' })}
       />
 
-      {archiveConfirmModal.open && (
-        <div className="modal-overlay confirmation-overlay" onClick={closeArchiveConfirmation}>
-          <div className="modal-content confirmation-content" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Confirm Archive</h2>
-              <button className="close-btn" onClick={closeArchiveConfirmation}>&times;</button>
-            </div>
-            <div className="modal-body">
-              <p>
-                {archiveConfirmModal.busIds.length > 1
-                  ? `Are you sure you want to archive ${archiveConfirmModal.busIds.length} buses and move them to Offline?`
-                  : 'Are you sure you want to archive this bus and move it to Offline?'}
-              </p>
-              <p className="info-note">You can restore archived buses later from the Offline tab.</p>
-              <div className="modal-actions-row">
-                <button
-                  type="button"
-                  className="table-action-btn delete"
-                  onClick={closeArchiveConfirmation}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="table-action-btn archive"
-                  onClick={confirmArchive}
-                >
-                  Confirm Archive
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmationModal
+        open={archiveConfirmModal.open}
+        title="Confirm Archive"
+        message={archiveConfirmModal.busIds.length > 1
+          ? `Are you sure you want to archive ${archiveConfirmModal.busIds.length} buses and move them to Offline?`
+          : 'Are you sure you want to archive this bus and move it to Offline?'}
+        note="You can restore archived buses later from the Offline tab."
+        confirmLabel="Confirm Archive"
+        onCancel={closeArchiveConfirmation}
+        onConfirm={confirmArchive}
+      />
 
-      {deleteConfirmModal.open && (
-        <div className="modal-overlay confirmation-overlay" onClick={closeDeleteConfirmation}>
-          <div className="modal-content confirmation-content" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Confirm Permanent Delete</h2>
-              <button className="close-btn" onClick={closeDeleteConfirmation}>&times;</button>
-            </div>
-            <div className="modal-body">
-              <p>
-                {deleteConfirmModal.busIds.length > 1
-                  ? `Delete ${deleteConfirmModal.busIds.length} archived buses permanently?`
-                  : 'Delete this archived bus permanently?'}
-              </p>
-              <p className="info-note">This action cannot be undone.</p>
-              <div className="modal-actions-row">
-                <button
-                  type="button"
-                  className="table-action-btn restore"
-                  onClick={closeDeleteConfirmation}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="table-action-btn delete"
-                  onClick={confirmDeleteArchived}
-                >
-                  Delete Permanently
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmationModal
+        open={deleteConfirmModal.open}
+        title="Confirm Permanent Delete"
+        message={deleteConfirmModal.busIds.length > 1
+          ? `Delete ${deleteConfirmModal.busIds.length} archived buses permanently?`
+          : 'Delete this archived bus permanently?'}
+        note="This action cannot be undone."
+        confirmLabel="Delete Permanently"
+        confirmVariant="danger"
+        onCancel={closeDeleteConfirmation}
+        onConfirm={confirmDeleteArchived}
+      />
 
-      {saveConfirmModal.open && (
-        <div className="modal-overlay confirmation-overlay" onClick={closeSaveConfirmation}>
-          <div className="modal-content confirmation-content" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Confirm Bus Update</h2>
-              <button className="close-btn" onClick={closeSaveConfirmation}>&times;</button>
-            </div>
-            <div className="modal-body">
-              <p>Save the changes you made to this bus?</p>
-              <p className="info-note">This will update bus details.</p>
-              <div className="modal-actions-row">
-                <button
-                  type="button"
-                  className="table-action-btn restore"
-                  onClick={closeSaveConfirmation}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="table-action-btn archive"
-                  onClick={handleSaveBusDetails}
-                >
-                  Confirm Save
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmationModal
+        open={saveConfirmModal.open}
+        title="Confirm Bus Update"
+        message="Save the changes you made to this bus?"
+        note="This will update bus details."
+        confirmLabel="Confirm Save"
+        onCancel={closeSaveConfirmation}
+        onConfirm={handleSaveBusDetails}
+      />
 
       <div className="requests-container">
         <div className="requests-header">
@@ -1132,8 +1228,6 @@ function Buses() {
                     >
                       <option value="Available">Available</option>
                       <option value="Active">Active</option>
-                      <option value="In Transit">In Transit</option>
-                      <option value="Arrived">Arrived</option>
                       <option value="Offline">Offline</option>
                     </select>
                   </div>
@@ -1145,29 +1239,46 @@ function Buses() {
 
                   <div className="form-group">
                     <label htmlFor="route">Origin *</label>
-                    <input
-                      type="text"
+                    <select
                       id="route"
                       name="route"
                       value={newBus.route}
                       onChange={handleInputChange}
-                      placeholder="e.g., One Ayala"
                       required
-                    />
+                    >
+                      <option value="">Select origin</option>
+                      {originOptions.map((origin) => (
+                        <option key={origin} value={origin}>
+                          {origin}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="form-group">
                     <label htmlFor="registeredDestination">Registered Destination *</label>
-                    <input
-                      type="text"
+                    <select
                       id="registeredDestination"
                       name="registeredDestination"
                       value={newBus.registeredDestination}
                       onChange={handleInputChange}
-                      placeholder="e.g., Bonifacio Global City, Taguig"
+                      disabled={!newBus.route}
                       required
-                    />
+                    >
+                      <option value="">{newBus.route ? 'Select destination' : 'Select origin first'}</option>
+                      {destinationOptions.map((destination) => (
+                        <option key={`${newBus.route}-${destination}`} value={destination}>
+                          {destination}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+
+                  {queueRoutesError && routeOptions.length === 0 && (
+                    <p className="info-note" style={{ color: '#b91c1c' }}>
+                      Unable to load route list from queues. Please check API connectivity.
+                    </p>
+                  )}
                 </div>
 
                 <div className="form-section">
@@ -1275,8 +1386,6 @@ function Buses() {
                       <select className="inline-edit-input" name="status" value={editingBus?.status || 'Available'} onChange={handleEditDetailsInputChange}>
                         <option value="Available">Available</option>
                         <option value="Active">Active</option>
-                        <option value="In Transit">In Transit</option>
-                        <option value="Arrived">Arrived</option>
                         <option value="Offline">Offline</option>
                       </select>
                     ) : (
@@ -1290,9 +1399,16 @@ function Buses() {
                 <div className="info-section">
                   <h3>Route Information</h3>
                   <div className="info-row">
-                    <span className="info-label">Current Route:</span>
+                    <span className="info-label">{isEditingDetails ? 'Origin:' : 'Current Route:'}</span>
                     {isEditingDetails ? (
-                      <input className="inline-edit-input" name="route" value={editingBus?.route || ''} onChange={handleEditDetailsInputChange} />
+                      <select className="inline-edit-input" name="route" value={editingBus?.route || ''} onChange={handleEditDetailsInputChange}>
+                        <option value="">Select origin</option>
+                        {originOptions.map((origin) => (
+                          <option key={`edit-origin-${origin}`} value={origin}>
+                            {origin}
+                          </option>
+                        ))}
+                      </select>
                     ) : (
                       <span className="info-value">{renderRouteWithChevron(selectedBus.route)}</span>
                     )}
@@ -1300,7 +1416,20 @@ function Buses() {
                   <div className="info-row">
                     <span className="info-label">Registered Destination:</span>
                     {isEditingDetails ? (
-                      <input className="inline-edit-input" name="registeredDestination" value={editingBus?.registeredDestination || ''} onChange={handleEditDetailsInputChange} />
+                      <select
+                        className="inline-edit-input"
+                        name="registeredDestination"
+                        value={editingBus?.registeredDestination || ''}
+                        onChange={handleEditDetailsInputChange}
+                        disabled={!editingBus?.route}
+                      >
+                        <option value="">{editingBus?.route ? 'Select destination' : 'Select origin first'}</option>
+                        {editDestinationOptions.map((destination) => (
+                          <option key={`edit-destination-${editingBus?.route}-${destination}`} value={destination}>
+                            {destination}
+                          </option>
+                        ))}
+                      </select>
                     ) : (
                       <span className="info-value">{selectedBus.registeredDestination}</span>
                     )}
@@ -1341,20 +1470,23 @@ function Buses() {
 
               </div>
 
-              <div className="modal-actions-row">
+              <div className="modal-actions-row bus-modal-actions">
                 {isEditingDetails ? (
                   <>
-                    <button type="button" className="table-action-btn restore" onClick={openSaveConfirmation}>
+                    <button type="button" className="bus-action-btn primary" onClick={openSaveConfirmation}>
                       Save Changes
                     </button>
                     <button
                       type="button"
-                      className="table-action-btn delete"
+                      className="bus-action-btn secondary"
                       onClick={() => {
                         closeSaveConfirmation();
                         setIsEditingDetails(false);
+                        const routeParts = parseRouteParts(selectedBus.route, selectedBus.registeredDestination);
                         setEditingBus({
                           ...selectedBus,
+                          route: routeParts.origin,
+                          registeredDestination: routeParts.destination,
                           capacity: String(selectedBus.capacity ?? ''),
                         });
                       }}
@@ -1365,7 +1497,7 @@ function Buses() {
                 ) : (
                   <button
                     type="button"
-                    className="table-action-btn restore primary-cta-btn"
+                    className="bus-action-btn primary"
                     onClick={() => setIsEditingDetails(true)}
                   >
                     Edit Details
@@ -1376,14 +1508,14 @@ function Buses() {
                   <>
                     <button
                       type="button"
-                      className="table-action-btn restore"
+                      className="bus-action-btn secondary"
                       onClick={() => handleUnarchiveBus(selectedBus.id)}
                     >
                       Unarchive
                     </button>
                     <button
                       type="button"
-                      className="table-action-btn delete"
+                      className="bus-action-btn danger"
                       onClick={() => handleDeleteArchivedBus(selectedBus.id)}
                     >
                       Delete Permanently
@@ -1392,7 +1524,7 @@ function Buses() {
                 ) : (
                   <button
                     type="button"
-                    className="table-action-btn archive"
+                    className="bus-action-btn danger"
                     onClick={() => handleArchiveBus(selectedBus.id)}
                   >
                     Archive Bus
