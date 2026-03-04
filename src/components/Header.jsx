@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import '../styles/Header.scss';
 import qnextLogo from '../assets/qnext.svg';
-import { MdDashboard, MdLogout, MdDirectionsBus, MdPeople, MdAltRoute } from 'react-icons/md';
+import { MdDashboard, MdLogout, MdDirectionsBus, MdPeople, MdAltRoute, MdHistory } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import ConfirmationModal from './ConfirmationModal';
 
@@ -51,6 +51,11 @@ function Header({ setCurrentPage, currentPage }) {
           <li>
             <button className={currentPage === 'routes' ? 'active' : ''} onClick={() => setCurrentPage('routes')}>
               <MdAltRoute /> Routes
+            </button>
+          </li>
+          <li>
+            <button className={currentPage === 'activity-logs' ? 'active' : ''} onClick={() => setCurrentPage('activity-logs')}>
+              <MdHistory /> Activity Logs
             </button>
           </li>
         </ul>

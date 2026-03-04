@@ -10,6 +10,7 @@ const Dashboard = lazy(() => import('./components/Dashboard'));
 const Buses = lazy(() => import('./components/Buses'));
 const BusAttendants = lazy(() => import('./components/BusAttendants'));
 const RoutesManagement = lazy(() => import('./components/RoutesManagement'));
+const ActivityLogs = lazy(() => import('./components/ActivityLogs'));
 const LearningGuidePage = lazy(() => import('./components/LearningGuidePage'));
 const NotFound = lazy(() => import('./components/NotFound'));
 const Login = lazy(() => import('./components/Login'));
@@ -31,6 +32,8 @@ function AppContent() {
         setCurrentPage('bus-attendants');
       } else if (pathname === '/routes') {
         setCurrentPage('routes');
+      } else if (pathname === '/activity-logs') {
+        setCurrentPage('activity-logs');
       } else if (pathname === '/learning-guide') {
         setCurrentPage('learning-guide');
       } else if (pathname === '/' || pathname === '') {
@@ -56,6 +59,8 @@ function AppContent() {
       window.history.pushState({}, '', '/bus-attendants');
     } else if (page === 'routes') {
       window.history.pushState({}, '', '/routes');
+    } else if (page === 'activity-logs') {
+      window.history.pushState({}, '', '/activity-logs');
     } else if (page === 'learning-guide') {
       window.history.pushState({}, '', '/learning-guide');
     } else {
@@ -86,6 +91,7 @@ function AppContent() {
         {currentPage === 'buses' && <Buses />}
         {currentPage === 'bus-attendants' && <BusAttendants />}
         {currentPage === 'routes' && <RoutesManagement />}
+        {currentPage === 'activity-logs' && <ActivityLogs />}
         {currentPage === 'learning-guide' && <LearningGuidePage />}
         {currentPage === 'notfound' && <NotFound />}
       </Suspense>

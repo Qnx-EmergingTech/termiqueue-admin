@@ -972,6 +972,35 @@ select.inline-edit-input {
   font-size: 1.1rem;
 }
 
+.activity-log-modal {
+  max-width: 960px;
+
+  .bus-info-grid {
+    gap: 1rem;
+  }
+}
+
+.activity-users-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.activity-user-item {
+  border: 1px solid #e7e7e7;
+  border-radius: 8px;
+  padding: 0.25rem 0.75rem;
+  background: #fff;
+
+  .info-row {
+    padding: 0.55rem 0;
+  }
+
+  .info-label {
+    flex: 0 0 140px;
+  }
+}
+
 .info-note {
   margin: 1rem 0 0 0;
   padding: 0.75rem;

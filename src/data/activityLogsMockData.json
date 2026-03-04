@@ -1,0 +1,71 @@
+[
+  {
+    "id": "trip-20260305-001",
+    "busNumber": "B-102",
+    "plateNumber": "NAA-1021",
+    "route": "SM North - Cubao",
+    "departureTime": "2026-03-05T07:10:00.000Z",
+    "arrivalTime": "2026-03-05T07:52:00.000Z",
+    "status": "Completed",
+    "users": [
+      {
+        "id": "user-001",
+        "name": "Alyssa Cruz",
+        "email": "alyssa.cruz@example.com",
+        "username": "alyssacruz"
+      },
+      {
+        "id": "user-002",
+        "name": "Ramon Lee",
+        "email": "ramon.lee@example.com",
+        "username": "ramonlee"
+      },
+      {
+        "id": "user-003",
+        "name": "Jessa Lim",
+        "email": "jessa.lim@example.com",
+        "username": "jessalim"
+      }
+    ]
+  },
+  {
+    "id": "trip-20260305-002",
+    "busNumber": "B-118",
+    "plateNumber": "NAA-8834",
+    "route": "Fairview - Trinoma",
+    "departureTime": "2026-03-05T08:05:00.000Z",
+    "arrivalTime": "2026-03-05T08:47:00.000Z",
+    "status": "Completed",
+    "users": [
+      {
+        "id": "user-004",
+        "name": "Nico Santos",
+        "email": "nico.santos@example.com",
+        "username": "nicosantos"
+      },
+      {
+        "id": "user-005",
+        "name": "Bea Navarro",
+        "email": "bea.navarro@example.com",
+        "username": "beanavarro"
+      }
+    ]
+  },
+  {
+    "id": "trip-20260305-003",
+    "busNumber": "B-125",
+    "plateNumber": "NAA-5510",
+    "route": "Monumento - Ayala",
+    "departureTime": "2026-03-05T09:00:00.000Z",
+    "arrivalTime": null,
+    "status": "In Progress",
+    "users": [
+      {
+        "id": "user-006",
+        "name": "Paolo Dizon",
+        "email": "paolo.dizon@example.com",
+        "username": "paolodizon"
+      }
+    ]
+  }
+]
