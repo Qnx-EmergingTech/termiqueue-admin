@@ -3,11 +3,7 @@ import { createContext, useState, useContext, useEffect } from 'react';
 import { auth, db, firebaseInitialized } from '../firebase'; 
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-<<<<<<< HEAD
 import { API_SESSION_EXPIRED_EVENT, loginAPI, logoutAPI, getCurrentUser as apiGetCurrentUser } from '../services/api';
-=======
-import { loginAPI, logoutAPI, getCurrentUser as apiGetCurrentUser } from '../services/api';
->>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 
 const AuthContext = createContext(null);
 
@@ -18,8 +14,8 @@ export const AuthProvider = ({ children }) => {
   const [authNotice, setAuthNotice] = useState('');
 
   // Prefer API auth when API URL is configured unless Firebase is explicitly requested.
-  const AUTH_PROVIDER = (import.meta.env.VITE_AUTH_PROVIDER || '').toLowerCase();
-  const apiConfigured = !!import.meta.env.VITE_API_URL;
+  const AUTH_PROVIDER = (import.meta.env.VITE_AUTH_PROVIDER || 'firebase').toLowerCase();
+  const apiConfigured = AUTH_PROVIDER === 'api' && !!import.meta.env.VITE_API_URL;
   const allowFirebaseFallback = !apiConfigured && AUTH_PROVIDER === 'firebase';
 
   const hasApiToken = () => {
@@ -42,10 +38,6 @@ export const AuthProvider = ({ children }) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
   };
 
-  // Auth mode is explicit to avoid accidental API auth for fresh clones.
-  const AUTH_PROVIDER = (import.meta.env.VITE_AUTH_PROVIDER || 'firebase').toLowerCase();
-  const apiConfigured = AUTH_PROVIDER === 'api' && !!import.meta.env.VITE_API_URL;
-
   // 2. Firebase "Watcher" - This checks if you are logged in automatically
   useEffect(() => {
     // If an API backend is configured, try restoring auth from API/localStorage
@@ -53,26 +45,16 @@ export const AuthProvider = ({ children }) => {
       (async () => {
         try {
           const current = await apiGetCurrentUser();
-<<<<<<< HEAD
           if (current && hasApiToken()) {
             setUser(current);
             setIsAuthenticated(true);
           } else {
             localStorage.removeItem('user');
-=======
-          if (current) {
-            setUser(current);
-            setIsAuthenticated(true);
-          } else {
->>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
             setUser(null);
             setIsAuthenticated(false);
           }
         } catch (e) {
-<<<<<<< HEAD
           localStorage.removeItem('user');
-=======
->>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
           setUser(null);
           setIsAuthenticated(false);
         } finally {
@@ -106,7 +88,8 @@ export const AuthProvider = ({ children }) => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         // If user exists in Auth, check if they are an Admin in Firestore
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+        // UPDATED: Changed 'users' to 'profiles'
+        const userDoc = await getDoc(doc(db, 'profiles', firebaseUser.uid));
         
         if (userDoc.exists() && userDoc.data().isAdmin === true) {
           setUser({ ...firebaseUser, ...userDoc.data() });
@@ -125,7 +108,7 @@ export const AuthProvider = ({ children }) => {
     });
 
     return () => unsubscribe(); // Cleanup the watcher
-  }, []);
+  }, [apiConfigured]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -153,7 +136,6 @@ export const AuthProvider = ({ children }) => {
     if (apiConfigured) {
       try {
         const data = await loginAPI(email, password);
-<<<<<<< HEAD
         const normalizedToken = String(
           data?.accessToken ||
           data?.raw?.idToken ||
@@ -248,25 +230,6 @@ export const AuthProvider = ({ children }) => {
           const msg = err?.response?.data?.message || err?.message || 'Login failed';
           return { success: false, error: msg };
         }
-=======
-        // loginAPI should return { accessToken, refreshToken, user }
-        if (data.accessToken) {
-          localStorage.setItem('accessToken', data.accessToken);
-        }
-        if (data.refreshToken) {
-          localStorage.setItem('refreshToken', data.refreshToken);
-        }
-        if (data.user) {
-          localStorage.setItem('user', JSON.stringify(data.user));
-          setUser(data.user);
-          setIsAuthenticated(true);
-          return { success: true };
-        }
-        return { success: false, error: 'Invalid login response from API' };
-      } catch (err) {
-        const msg = err?.response?.data?.message || err?.message || 'Login failed';
-        return { success: false, error: msg };
->>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
       }
     }
 
@@ -284,8 +247,9 @@ export const AuthProvider = ({ children }) => {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const firebaseUser = userCredential.user;
 
-      // Immediately check if this person is an Admin in your "users" collection
-      const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+      // Immediately check if this person is an Admin in your "profiles" collection
+      // UPDATED: Changed 'users' to 'profiles'
+      const userDoc = await getDoc(doc(db, 'profiles', firebaseUser.uid));
 
       if (userDoc.exists() && userDoc.data().isAdmin === true) {
         setUser({ ...firebaseUser, ...userDoc.data() });
@@ -314,13 +278,9 @@ export const AuthProvider = ({ children }) => {
           console.warn('API logout failed:', e);
         }
         localStorage.removeItem('accessToken');
-<<<<<<< HEAD
         localStorage.removeItem('access_token');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('refresh_token');
-=======
-        localStorage.removeItem('refreshToken');
->>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
         localStorage.removeItem('user');
       }
 
@@ -329,10 +289,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       localStorage.removeItem('demoAuth');
-<<<<<<< HEAD
       setAuthNotice('');
-=======
->>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
       setUser(null);
       setIsAuthenticated(false);
     } catch (error) {
@@ -346,6 +303,7 @@ export const AuthProvider = ({ children }) => {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
+
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) throw new Error('useAuth must be used within an AuthProvider');
