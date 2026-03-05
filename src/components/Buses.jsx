@@ -1,12 +1,22 @@
+<<<<<<< HEAD
 import { useState, useEffect, useMemo } from 'react';
+=======
+import { useState, useEffect } from 'react';
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 import { MdChevronRight } from 'react-icons/md';
 import '../styles/Body.scss';
 import '../styles/Requests.scss';
 import TableSkeletonRows from './TableSkeletonRows';
+<<<<<<< HEAD
 import { createBus, deleteBus, fetchBuses, fetchQueues, updateBus } from '../services/api';
 import { syncBusToFirebase } from '../services/busFirebaseSyncService';
 import SuccessModal from './SuccessModal';
 import ConfirmationModal from './ConfirmationModal';
+=======
+import { createBus, deleteBus, fetchBuses, updateBus } from '../services/api';
+import { syncBusToFirebase } from '../services/busFirebaseSyncService';
+import SuccessModal from './SuccessModal';
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 
 function Buses() {
   const [buses, setBuses] = useState([]); // Use empty array [] when API is ready
@@ -25,8 +35,11 @@ function Buses() {
   const [sortOrder, setSortOrder] = useState('desc');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+<<<<<<< HEAD
   const [queueRoutes, setQueueRoutes] = useState([]);
   const [queueRoutesError, setQueueRoutesError] = useState(null);
+=======
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
   const [successModal, setSuccessModal] = useState({
     open: false,
     title: '',
@@ -41,9 +54,12 @@ function Buses() {
     open: false,
     busIds: [],
   });
+<<<<<<< HEAD
   const [saveConfirmModal, setSaveConfirmModal] = useState({
     open: false,
   });
+=======
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
   const [newBus, setNewBus] = useState({
     busNumber: '',
     route: '',
@@ -56,6 +72,7 @@ function Buses() {
     registeredDestination: ''
   });
 
+<<<<<<< HEAD
   const parseRouteParts = (routeText, fallbackDestination = '') => {
     const normalizedRoute = String(routeText || '').trim();
     const normalizedFallbackDestination = String(fallbackDestination || '').trim();
@@ -111,6 +128,11 @@ function Buses() {
   useEffect(() => {
     let isMounted = true;
 
+=======
+  useEffect(() => {
+    let isMounted = true;
+
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
     const loadInitialBuses = async () => {
       setLoading(true);
       setError(null);
@@ -133,7 +155,11 @@ function Buses() {
         }
 
         console.error('Error loading buses from API:', err);
+<<<<<<< HEAD
         setError(getRequestErrorMessage(err, 'Failed to load buses from API.'));
+=======
+        setError('Unable to reach the API. Please check your connection or login session.');
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
         setBuses([]);
         setArchivedBuses([]);
       } finally {
@@ -149,6 +175,7 @@ function Buses() {
       isMounted = false;
     };
   }, []);
+<<<<<<< HEAD
 
   useEffect(() => {
     let isMounted = true;
@@ -261,6 +288,8 @@ function Buses() {
 
     return Array.from(destinations).sort((left, right) => left.localeCompare(right));
   }, [routeOptions, editingBus?.route]);
+=======
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 
   // Filter buses based on search query
   const sourceBuses = viewMode === 'active' ? buses : archivedBuses;
@@ -352,6 +381,24 @@ function Buses() {
     setCurrentPage(1);
   };
 
+<<<<<<< HEAD
+=======
+  const getRequestErrorMessage = (err, fallbackMessage) => {
+    const validationDetails = err?.response?.data?.detail;
+
+    if (Array.isArray(validationDetails) && validationDetails.length > 0) {
+      return validationDetails
+        .map((item) => {
+          const location = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : 'field';
+          return `${location}: ${item?.msg || 'invalid value'}`;
+        })
+        .join(' | ');
+    }
+
+    return err?.response?.data?.message || err?.message || fallbackMessage;
+  };
+
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
   const renderRouteWithChevron = (routeValue) => {
     const routeText = String(routeValue || '').trim();
 
@@ -624,8 +671,11 @@ function Buses() {
     setSelectedBus(bus);
     setEditingBus({
       ...bus,
+<<<<<<< HEAD
       route: routeParts.origin,
       registeredDestination: routeParts.destination,
+=======
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
       capacity: String(bus.capacity ?? ''),
     });
     setIsEditingDetails(false);
@@ -638,6 +688,7 @@ function Buses() {
     setSelectedBus(null);
     setEditingBus(null);
     setIsEditingDetails(false);
+<<<<<<< HEAD
     setSaveConfirmModal({ open: false });
   };
 
@@ -659,11 +710,14 @@ function Buses() {
 
   const closeSaveConfirmation = () => {
     setSaveConfirmModal({ open: false });
+=======
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
   };
 
   const handleEditDetailsInputChange = (event) => {
     const { name, value } = event.target;
 
+<<<<<<< HEAD
     setEditingBus((previousBus) => {
       if (name === 'route') {
         return {
@@ -678,6 +732,12 @@ function Buses() {
         [name]: value,
       };
     });
+=======
+    setEditingBus((previousBus) => ({
+      ...previousBus,
+      [name]: value,
+    }));
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
   };
 
   const applyUpdatedBusToCollections = (updatedBus) => {
@@ -706,7 +766,11 @@ function Buses() {
     }
 
     if (!editingBus.busNumber || !editingBus.route || !editingBus.busCompany ||
+<<<<<<< HEAD
       !editingBus.plateNumber || !editingBus.capacity ||
+=======
+      !editingBus.plateNumber || !editingBus.capacity || !editingBus.busAttendant ||
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
       !editingBus.busCompanyEmail || !editingBus.busCompanyContact ||
       !editingBus.registeredDestination) {
       alert('Please fill in all required fields before saving.');
@@ -718,6 +782,7 @@ function Buses() {
       setError(null);
 
       const payload = {
+<<<<<<< HEAD
         busNumber: editingBus.busNumber,
         route: editingBus.route,
         busCompany: editingBus.busCompany,
@@ -728,12 +793,21 @@ function Buses() {
         busCompanyContact: editingBus.busCompanyContact,
         registeredDestination: editingBus.registeredDestination,
         busPhoto: editingBus.busPhoto,
+=======
+        ...editingBus,
+        capacity: parseInt(editingBus.capacity, 10),
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
       };
 
       const updatedBusFromApi = await updateBus(selectedBus.id, payload);
       const mergedUpdatedBus = {
+<<<<<<< HEAD
         ...payload,
         ...updatedBusFromApi,
+=======
+        ...updatedBusFromApi,
+        ...payload,
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
         id: updatedBusFromApi?.id || selectedBus.id,
         lastUpdated: updatedBusFromApi?.lastUpdated || Date.now(),
       };
@@ -764,7 +838,10 @@ function Buses() {
         message: 'Bus details were updated successfully.',
         detail: firebaseSkipped ? 'Saved to API. Firebase sync is currently disabled.' : '',
       });
+<<<<<<< HEAD
       closeSaveConfirmation();
+=======
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
     } catch (err) {
       const message = getRequestErrorMessage(err, 'Failed to update bus details.');
       setError(message);
@@ -815,13 +892,48 @@ function Buses() {
     });
   };
 
+  const handleBusPhotoUpload = (e) => {
+    const file = e.target.files && e.target.files[0];
+
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload a valid image file.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const imageData = typeof reader.result === 'string' ? reader.result : null;
+
+      setNewBus((prevBus) => ({
+        ...prevBus,
+        busPhoto: imageData,
+      }));
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeBusPhoto = () => {
+    setNewBus((prevBus) => ({
+      ...prevBus,
+      busPhoto: null,
+    }));
+  };
+
   // Handle form submit
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     // Validate required fields
     if (!newBus.busNumber || !newBus.route || !newBus.busCompany ||
+<<<<<<< HEAD
       !newBus.plateNumber || !newBus.capacity ||
+=======
+      !newBus.plateNumber || !newBus.capacity || !newBus.busAttendant ||
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
       !newBus.busCompanyEmail || !newBus.busCompanyContact ||
       !newBus.registeredDestination) {
       alert('Please fill in all required fields');
@@ -844,8 +956,13 @@ function Buses() {
       };
       const createdBusFromApi = await createBus(newBusData);
       const mergedCreatedBus = {
+<<<<<<< HEAD
         ...newBusData,
         ...createdBusFromApi,
+=======
+        ...createdBusFromApi,
+        ...newBusData,
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
         id: createdBusFromApi?.id || createdBusFromApi?.busId || Date.now(),
         lastUpdated: createdBusFromApi?.lastUpdated || Date.now(),
       };
@@ -907,6 +1024,7 @@ function Buses() {
         onClose={() => setSuccessModal({ open: false, title: '', message: '', detail: '' })}
       />
 
+<<<<<<< HEAD
       <ConfirmationModal
         open={archiveConfirmModal.open}
         title="Confirm Archive"
@@ -941,6 +1059,77 @@ function Buses() {
         onCancel={closeSaveConfirmation}
         onConfirm={handleSaveBusDetails}
       />
+=======
+      {archiveConfirmModal.open && (
+        <div className="modal-overlay confirmation-overlay" onClick={closeArchiveConfirmation}>
+          <div className="modal-content confirmation-content" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Confirm Archive</h2>
+              <button className="close-btn" onClick={closeArchiveConfirmation}>&times;</button>
+            </div>
+            <div className="modal-body">
+              <p>
+                {archiveConfirmModal.busIds.length > 1
+                  ? `Are you sure you want to archive ${archiveConfirmModal.busIds.length} buses and move them to Offline?`
+                  : 'Are you sure you want to archive this bus and move it to Offline?'}
+              </p>
+              <p className="info-note">You can restore archived buses later from the Offline tab.</p>
+              <div className="modal-actions-row">
+                <button
+                  type="button"
+                  className="table-action-btn delete"
+                  onClick={closeArchiveConfirmation}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="table-action-btn archive"
+                  onClick={confirmArchive}
+                >
+                  Confirm Archive
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirmModal.open && (
+        <div className="modal-overlay confirmation-overlay" onClick={closeDeleteConfirmation}>
+          <div className="modal-content confirmation-content" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Confirm Permanent Delete</h2>
+              <button className="close-btn" onClick={closeDeleteConfirmation}>&times;</button>
+            </div>
+            <div className="modal-body">
+              <p>
+                {deleteConfirmModal.busIds.length > 1
+                  ? `Delete ${deleteConfirmModal.busIds.length} archived buses permanently?`
+                  : 'Delete this archived bus permanently?'}
+              </p>
+              <p className="info-note">This action cannot be undone.</p>
+              <div className="modal-actions-row">
+                <button
+                  type="button"
+                  className="table-action-btn restore"
+                  onClick={closeDeleteConfirmation}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="table-action-btn delete"
+                  onClick={confirmDeleteArchived}
+                >
+                  Delete Permanently
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 
       <div className="requests-container">
         <div className="requests-header">
@@ -960,8 +1149,13 @@ function Buses() {
               <input
                 type="text"
                 placeholder={isArchivedView
+<<<<<<< HEAD
                   ? 'Search offline buses by number, route, company, plate, or status...'
                   : 'Search by bus number, route, company, plate, or status...'}
+=======
+                  ? 'Search offline buses by number, route, company, plate, attendant, or status...'
+                  : 'Search by bus number, route, company, plate, attendant, or status...'}
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
                 value={searchQuery}
                 onChange={handleSearchChange}
                 className="search-input"
@@ -1228,10 +1422,40 @@ function Buses() {
                     >
                       <option value="Available">Available</option>
                       <option value="Active">Active</option>
+<<<<<<< HEAD
+=======
+                      <option value="In Transit">In Transit</option>
+                      <option value="Arrived">Arrived</option>
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
                       <option value="Offline">Offline</option>
                     </select>
                   </div>
 
+<<<<<<< HEAD
+=======
+                  <div className="form-group">
+                    <label htmlFor="busPhoto">Upload Bus Photo</label>
+                    <input
+                      type="file"
+                      id="busPhoto"
+                      name="busPhoto"
+                      accept="image/*"
+                      onChange={handleBusPhotoUpload}
+                    />
+                  </div>
+
+                  {newBus.busPhoto && (
+                    <div className="bus-photo-placeholder add-bus-photo-preview">
+                      <img src={newBus.busPhoto} alt="Bus preview" />
+                    </div>
+                  )}
+
+                  {newBus.busPhoto && (
+                    <button type="button" className="btn-cancel remove-photo-btn" onClick={removeBusPhoto}>
+                      Remove Photo
+                    </button>
+                  )}
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
                 </div>
 
                 <div className="form-section">
@@ -1239,11 +1463,20 @@ function Buses() {
 
                   <div className="form-group">
                     <label htmlFor="route">Origin *</label>
+<<<<<<< HEAD
                     <select
+=======
+                    <input
+                      type="text"
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
                       id="route"
                       name="route"
                       value={newBus.route}
                       onChange={handleInputChange}
+<<<<<<< HEAD
+=======
+                      placeholder="e.g., One Ayala"
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
                       required
                     >
                       <option value="">Select origin</option>
@@ -1324,6 +1557,29 @@ function Buses() {
                   </div>
                 </div>
 
+<<<<<<< HEAD
+=======
+                <div className="form-section highlight-section">
+                  <h3>Bus Attendant (Source of Truth)</h3>
+
+                  <div className="form-group">
+                    <label htmlFor="busAttendant">Assigned Bus Attendant *</label>
+                    <input
+                      type="text"
+                      id="busAttendant"
+                      name="busAttendant"
+                      value={newBus.busAttendant}
+                      onChange={handleInputChange}
+                      placeholder="e.g., Juan Dela Cruz"
+                      required
+                    />
+                  </div>
+
+                  <p className="info-note">
+                    * The bus attendant is the primary source of truth for all bus information and operations.
+                  </p>
+                </div>
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
               </div>
 
               <div className="form-actions">
@@ -1347,6 +1603,23 @@ function Buses() {
               <h2>Bus Details</h2>
               <button className="close-btn" onClick={closeModal}>&times;</button>
             </div>
+<<<<<<< HEAD
+=======
+
+            <div className="modal-body">
+              <div className="bus-photo-section">
+                <div className="bus-photo-placeholder">
+                  {selectedBus.busPhoto ? (
+                    <img src={selectedBus.busPhoto} alt={`Bus ${selectedBus.busNumber}`} />
+                  ) : (
+                    <div className="no-photo">
+                      <span>📷</span>
+                      <p>No photo available</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 
             <div className="modal-body">
               <div className="bus-info-grid">
@@ -1386,6 +1659,11 @@ function Buses() {
                       <select className="inline-edit-input" name="status" value={editingBus?.status || 'Available'} onChange={handleEditDetailsInputChange}>
                         <option value="Available">Available</option>
                         <option value="Active">Active</option>
+<<<<<<< HEAD
+=======
+                        <option value="In Transit">In Transit</option>
+                        <option value="Arrived">Arrived</option>
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
                         <option value="Offline">Offline</option>
                       </select>
                     ) : (
@@ -1399,6 +1677,7 @@ function Buses() {
                 <div className="info-section">
                   <h3>Route Information</h3>
                   <div className="info-row">
+<<<<<<< HEAD
                     <span className="info-label">{isEditingDetails ? 'Origin:' : 'Current Route:'}</span>
                     {isEditingDetails ? (
                       <select className="inline-edit-input" name="route" value={editingBus?.route || ''} onChange={handleEditDetailsInputChange}>
@@ -1409,6 +1688,11 @@ function Buses() {
                           </option>
                         ))}
                       </select>
+=======
+                    <span className="info-label">Current Route:</span>
+                    {isEditingDetails ? (
+                      <input className="inline-edit-input" name="route" value={editingBus?.route || ''} onChange={handleEditDetailsInputChange} />
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
                     ) : (
                       <span className="info-value">{renderRouteWithChevron(selectedBus.route)}</span>
                     )}
@@ -1416,6 +1700,7 @@ function Buses() {
                   <div className="info-row">
                     <span className="info-label">Registered Destination:</span>
                     {isEditingDetails ? (
+<<<<<<< HEAD
                       <select
                         className="inline-edit-input"
                         name="registeredDestination"
@@ -1430,6 +1715,9 @@ function Buses() {
                           </option>
                         ))}
                       </select>
+=======
+                      <input className="inline-edit-input" name="registeredDestination" value={editingBus?.registeredDestination || ''} onChange={handleEditDetailsInputChange} />
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
                     ) : (
                       <span className="info-value">{selectedBus.registeredDestination}</span>
                     )}
@@ -1468,6 +1756,7 @@ function Buses() {
                   </div>
                 </div>
 
+<<<<<<< HEAD
               </div>
 
               <div className="modal-actions-row bus-modal-actions">
@@ -1525,6 +1814,80 @@ function Buses() {
                   <button
                     type="button"
                     className="bus-action-btn danger"
+                    onClick={() => handleArchiveBus(selectedBus.id)}
+                  >
+                    Archive Bus
+                  </button>
+                )}
+=======
+                <div className="info-section highlight-section">
+                  <h3>Bus Attendant (Source of Truth)</h3>
+                  <div className="info-row">
+                    <span className="info-label">Assigned Attendant:</span>
+                    {isEditingDetails ? (
+                      <input className="inline-edit-input" name="busAttendant" value={editingBus?.busAttendant || ''} onChange={handleEditDetailsInputChange} />
+                    ) : (
+                      <span className="info-value attendant-name">{selectedBus.busAttendant}</span>
+                    )}
+                  </div>
+                  <p className="info-note">
+                    * The bus attendant is the primary source of truth for all bus information and operations.
+                  </p>
+                </div>
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
+              </div>
+
+              <div className="modal-actions-row">
+                {isEditingDetails ? (
+                  <>
+                    <button type="button" className="table-action-btn restore" onClick={handleSaveBusDetails}>
+                      Save Changes
+                    </button>
+                    <button
+                      type="button"
+                      className="table-action-btn delete"
+                      onClick={() => {
+                        setIsEditingDetails(false);
+                        setEditingBus({
+                          ...selectedBus,
+                          capacity: String(selectedBus.capacity ?? ''),
+                        });
+                      }}
+                    >
+                      Cancel Edit
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="table-action-btn restore primary-cta-btn"
+                    onClick={() => setIsEditingDetails(true)}
+                  >
+                    Edit Details
+                  </button>
+                )}
+
+                {selectedBus.status === 'Offline' ? (
+                  <>
+                    <button
+                      type="button"
+                      className="table-action-btn restore"
+                      onClick={() => handleUnarchiveBus(selectedBus.id)}
+                    >
+                      Unarchive
+                    </button>
+                    <button
+                      type="button"
+                      className="table-action-btn delete"
+                      onClick={() => handleDeleteArchivedBus(selectedBus.id)}
+                    >
+                      Delete Permanently
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="table-action-btn archive"
                     onClick={() => handleArchiveBus(selectedBus.id)}
                   >
                     Archive Bus

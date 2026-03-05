@@ -46,9 +46,15 @@
 }
 
 .pill {
+<<<<<<< HEAD
   background: $accent-color;
   color: $primary-color;
   border: 1px solid $faded-alt;
+=======
+  background: color.adjust($primary-color, $lightness: 56%);
+  color: $primary-color;
+  border: 1px solid color.adjust($primary-color, $lightness: 48%);
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
   border-radius: 999px;
   padding: 0.35rem 0.7rem;
   font-size: 0.82rem;
@@ -72,8 +78,13 @@
 }
 
 .flow-node {
+<<<<<<< HEAD
   background: $accent-color;
   border: 1px solid $faded-alt;
+=======
+  background: #f7fafb;
+  border: 1px solid #dbe9eb;
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
   border-radius: 10px;
   padding: 0.75rem;
   text-align: center;
@@ -153,8 +164,13 @@
   font-size: 0.78rem;
   font-weight: 600;
   color: $primary-color;
+<<<<<<< HEAD
   background: $accent-color;
   border: 1px solid $faded-alt;
+=======
+  background: color.adjust($primary-color, $lightness: 57%);
+  border: 1px solid color.adjust($primary-color, $lightness: 48%);
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 }
 
 .flow-strip {
@@ -232,7 +248,11 @@
     }
 
     &.head {
+<<<<<<< HEAD
       background: $accent-color;
+=======
+      background: color.adjust($primary-color, $lightness: 58%);
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
       border-top: 0;
 
       span {

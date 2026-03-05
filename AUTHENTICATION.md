@@ -61,7 +61,6 @@ Important behavior:
 - The login form accepts **Username or Email**, but `loginAPI` sends the first field as `username` to `/profiles/login`.
 - Password is **not** stored in Firestore profile documents. Password validation is handled by the backend auth service.
 - Profile role data can be stored under `/profiles` fields such as `user_type`, `role`, `user_role`, `account_type`, etc., which are normalized by `src/services/api.js`.
-
 ## Firebase Project Setup
 
 ### 1) Enable Auth Provider

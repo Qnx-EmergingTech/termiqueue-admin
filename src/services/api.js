@@ -1,4 +1,5 @@
 import axios from 'axios';
+<<<<<<< HEAD
 import { collection, doc, getDoc, getDocs, limit, query, setDoc, where } from 'firebase/firestore';
 import { auth, db, firebaseInitialized } from '../firebase';
 
@@ -515,6 +516,47 @@ const mapApiStatusToUi = (rawStatus) => {
   }
 
   if (normalized === 'in_transit' || normalized === 'intransit' || normalized === 'in transit') {
+=======
+import mockAuthData from '../data/authMockData.json';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://44.202.107.196:8080';
+
+const getAuthHeaders = () => {
+  const accessToken = localStorage.getItem('accessToken');
+
+  if (!accessToken) {
+    return {};
+  }
+
+  return {
+    Authorization: `Bearer ${accessToken}`,
+  };
+};
+
+const getFirstDefinedValue = (source, keys, fallback = '') => {
+  for (const key of keys) {
+    const value = source?.[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+
+  return fallback;
+};
+
+const mapApiStatusToUi = (rawStatus) => {
+  const normalized = String(rawStatus || 'Inactive').trim().toLowerCase();
+
+  if (normalized === 'available') {
+    return 'Available';
+  }
+
+  if (normalized === 'active') {
+    return 'Active';
+  }
+
+  if (normalized === 'in_transit') {
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
     return 'In Transit';
   }
 
@@ -536,12 +578,31 @@ const mapApiStatusToUi = (rawStatus) => {
 const mapUiStatusToApi = (rawStatus) => {
   const normalized = String(rawStatus || '').trim().toLowerCase();
 
+<<<<<<< HEAD
   if (normalized === 'active' || normalized === 'available' || normalized === 'offline') {
     return normalized;
   }
 
   if (normalized === 'in transit' || normalized === 'in_transit' || normalized === 'intransit' || normalized === 'arrived') {
     return 'active';
+=======
+  if (
+    normalized === 'active' ||
+    normalized === 'available' ||
+    normalized === 'offline' ||
+    normalized === 'in_transit' ||
+    normalized === 'arrived'
+  ) {
+    return normalized;
+  }
+
+  if (normalized === 'in transit') {
+    return 'in_transit';
+  }
+
+  if (normalized === 'offline') {
+    return 'offline';
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
   }
 
   if (normalized === 'inactive' || normalized === 'maintenance' || normalized === 'archived') {
@@ -551,6 +612,7 @@ const mapUiStatusToApi = (rawStatus) => {
   return 'available';
 };
 
+<<<<<<< HEAD
 const resolveAlternateInTransitStatus = (rawStatus) => {
   const normalized = String(rawStatus || '').trim().toLowerCase();
 
@@ -592,6 +654,8 @@ const requestBusWithStatusAliasFallback = async (requestBuilder, payload) => {
   }
 };
 
+=======
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 const splitRoute = (routeValue) => {
   const routeText = String(routeValue || '').trim();
   if (!routeText) {
@@ -609,6 +673,37 @@ const splitRoute = (routeValue) => {
   };
 };
 
+<<<<<<< HEAD
+=======
+const generateSecureAttendantId = () => {
+  const length = 28;
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const cryptoApi = globalThis?.crypto;
+
+  if (cryptoApi?.getRandomValues) {
+    const bytes = new Uint8Array(length);
+    cryptoApi.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('');
+  }
+
+  let fallback = '';
+  while (fallback.length < length) {
+    fallback += Math.random().toString(36).slice(2);
+  }
+
+  return fallback.slice(0, length);
+};
+
+const buildAttendantId = ({ attendantId }) => {
+  const directId = String(attendantId || '').trim();
+  if (directId) {
+    return directId;
+  }
+
+  return generateSecureAttendantId();
+};
+
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 const normalizeTimestamp = (value) => {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
@@ -715,6 +810,7 @@ const extractSingleBus = (payload) => {
   return payload;
 };
 
+<<<<<<< HEAD
 const normalizeProfile = (profile, index) => {
   const profileId = getFirstDefinedValue(profile, ['id', 'profile_id', 'uid', 'user_id', '_id'], index + 1);
   const firstName = String(getFirstDefinedValue(profile, ['first_name', 'firstName', 'given_name'], '')).trim();
@@ -996,6 +1092,26 @@ const mapBusToApiPayload = (busData = {}, options = { partial: false }) => {
     }
   };
 
+=======
+const mapBusToApiPayload = (busData = {}, options = { partial: false }) => {
+  const payload = {};
+  const { partial } = options;
+  const routeParts = splitRoute(getFirstDefinedValue(busData, ['route', 'route_name'], ''));
+
+  const assignMappedValue = (targetKey, sourceKeys, transform = (value) => value) => {
+    for (const sourceKey of sourceKeys) {
+      if (Object.prototype.hasOwnProperty.call(busData, sourceKey) && busData[sourceKey] !== undefined) {
+        payload[targetKey] = transform(busData[sourceKey]);
+        return;
+      }
+    }
+
+    if (!partial) {
+      payload[targetKey] = transform('');
+    }
+  };
+
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
   assignMappedValue('bus_number', ['bus_number', 'busNumber']);
   assignMappedValue('bus_name', ['bus_name', 'busName', 'operator', 'busCompany'], (value) => String(value || '').trim());
   assignMappedValue('plate_number', ['plate_number', 'plateNumber']);
@@ -1004,10 +1120,17 @@ const mapBusToApiPayload = (busData = {}, options = { partial: false }) => {
   assignMappedValue('status', ['status', 'bus_status'], (value) => mapUiStatusToApi(value));
   assignMappedValue('origin', ['origin', 'route_origin'], (value) => String(value || '').trim());
   assignMappedValue('destination', ['destination', 'registeredDestination', 'route_destination'], (value) => String(value || '').trim());
+<<<<<<< HEAD
   assignMappedValue('attendant_name', ['attendant_name', 'busAttendant', 'bus_attendant', 'attendantName'], (value) => String(value || '').trim());
   assignMappedValue('attendant_id', ['attendant_id', 'attendantId'], (value) => String(value || '').trim());
   assignMappedValue('company_email', ['company_email', 'busCompanyEmail', 'email']);
   assignMappedValue('company_contact', ['company_contact', 'busCompanyContact', 'contact_number']);
+=======
+  assignMappedValue('company_email', ['company_email', 'busCompanyEmail', 'email']);
+  assignMappedValue('company_contact', ['company_contact', 'busCompanyContact', 'contact_number']);
+  assignMappedValue('attendant_name', ['attendant_name', 'busAttendant', 'bus_attendant', 'attendantName']);
+  assignMappedValue('attendant_id', ['attendant_id', 'attendantId'], (value) => String(value || '').trim());
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 
   if (!partial) {
     if (!payload.bus_name || !String(payload.bus_name).trim()) {
@@ -1029,12 +1152,36 @@ const mapBusToApiPayload = (busData = {}, options = { partial: false }) => {
         routeParts.destination
       ) || routeParts.destination;
     }
+<<<<<<< HEAD
+=======
+
+    if (!payload.attendant_id) {
+      payload.attendant_id = buildAttendantId({
+        attendantId: getFirstDefinedValue(busData, ['attendantId', 'attendant_id'], ''),
+        attendantName: getFirstDefinedValue(busData, ['busAttendant', 'bus_attendant', 'attendant_name'], ''),
+        busNumber: getFirstDefinedValue(busData, ['busNumber', 'bus_number'], ''),
+      });
+    }
+  }
+
+  if (partial && payload.attendant_id === undefined) {
+    const generatedAttendantId = buildAttendantId({
+      attendantId: getFirstDefinedValue(busData, ['attendantId', 'attendant_id'], ''),
+      attendantName: getFirstDefinedValue(busData, ['busAttendant', 'bus_attendant', 'attendant_name'], ''),
+      busNumber: getFirstDefinedValue(busData, ['busNumber', 'bus_number'], ''),
+    });
+
+    if (generatedAttendantId) {
+      payload.attendant_id = generatedAttendantId;
+    }
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
   }
 
   return payload;
 };
 
 // --- AUTH FUNCTIONS ---
+<<<<<<< HEAD
 export const loginAPI = async (usernameOrEmail, password) => {
   const response = await axios.post(`${API_URL}/profiles/login`, {
     username: usernameOrEmail,
@@ -1187,10 +1334,27 @@ export const getCurrentUser = async () => {
     }
 
     clearApiAuthStorage();
+=======
+export const loginAPI = async (email, password) => {
+  const response = await axios.post(`${API_URL}/auth/login`, { email, password });
+  return response.data;
+};
+
+export const logoutAPI = async () => {
+  return await axios.post(`${API_URL}/auth/logout`);
+};
+
+export const getCurrentUser = async () => {
+  try {
+    const savedUser = localStorage.getItem('user');
+    return savedUser ? JSON.parse(savedUser) : null;
+  } catch (error) {
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
     return null;
   }
 };
 
+<<<<<<< HEAD
 export const fetchProfiles = async (params = {}) => {
   const fetchProfilesFromFirestore = async () => {
     if (!firebaseInitialized || !db) {
@@ -1731,12 +1895,21 @@ export const fetchBuses = async (params = {}) => {
       headers: getAuthHeaders(),
     })
   );
+=======
+// --- BUS FUNCTIONS (Add these to fix the Buses page crash) ---
+export const fetchBuses = async (params = {}) => {
+  const response = await axios.get(`${API_URL}/buses/`, {
+    params,
+    headers: getAuthHeaders(),
+  });
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 
   const rawBuses = extractBusArray(response.data);
   return rawBuses.map((bus, index) => normalizeBus(bus, index));
 };
 
 export const createBus = async (busData) => {
+<<<<<<< HEAD
   const payload = mapBusToApiPayload(busData, { partial: false });
   const response = await requestBusWithStatusAliasFallback(
     (resolvedPayload) => requestWithBusEndpointFallback((endpoint) =>
@@ -1746,12 +1919,18 @@ export const createBus = async (busData) => {
     ),
     payload
   );
+=======
+  const response = await axios.post(`${API_URL}/buses/`, mapBusToApiPayload(busData, { partial: false }), {
+    headers: getAuthHeaders(),
+  });
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 
   const createdBus = extractSingleBus(response.data);
   return normalizeBus(createdBus || busData, 0);
 };
 
 export const updateBus = async (id, busData) => {
+<<<<<<< HEAD
   const payload = mapBusToApiPayload(busData, { partial: true });
   const response = await requestBusWithStatusAliasFallback(
     (resolvedPayload) => requestWithBusEndpointFallback((endpoint) =>
@@ -1761,16 +1940,27 @@ export const updateBus = async (id, busData) => {
     ),
     payload
   );
+=======
+  const response = await axios.put(`${API_URL}/buses/${id}`, mapBusToApiPayload(busData, { partial: true }), {
+    headers: getAuthHeaders(),
+  });
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 
   const updatedBus = extractSingleBus(response.data);
   return normalizeBus(updatedBus || { id, ...busData }, 0);
 };
 
 export const deleteBus = async (id) => {
+<<<<<<< HEAD
   const response = await requestWithBusEndpointFallback((endpoint) =>
     axios.delete(`${API_URL}/${endpoint}/${id}`, {
       headers: getAuthHeaders(),
     })
   );
+=======
+  const response = await axios.delete(`${API_URL}/buses/${id}`, {
+    headers: getAuthHeaders(),
+  });
+>>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
   return response.data;
 };
