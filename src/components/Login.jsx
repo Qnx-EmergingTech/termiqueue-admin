@@ -10,6 +10,7 @@ function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login, authNotice, clearAuthNotice } = useAuth();
+  const authProvider = String(import.meta.env.VITE_AUTH_PROVIDER || 'firebase').toLowerCase();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -102,7 +103,9 @@ function Login() {
 
         <div className="login-footer">
           <p className="demo-info">
-            <strong>Demo Mode:</strong> Enter any username/email and password to login
+            {authProvider === 'api'
+              ? 'Use your API username/email and password.'
+              : 'Use your Firebase admin email and password.'}
           </p>
         </div>
       </div>

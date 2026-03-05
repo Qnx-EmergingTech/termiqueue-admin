@@ -2,7 +2,7 @@ import { createContext, useState, useContext, useEffect } from 'react';
 // 1. Import Firebase tools instead of the old API files
 import { auth, db, firebaseInitialized } from '../firebase'; 
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
 import { API_SESSION_EXPIRED_EVENT, loginAPI, logoutAPI, getCurrentUser as apiGetCurrentUser } from '../services/api';
 
 const AuthContext = createContext(null);
@@ -15,7 +15,7 @@ export const AuthProvider = ({ children }) => {
 
   // Prefer API auth when API URL is configured unless Firebase is explicitly requested.
   const AUTH_PROVIDER = (import.meta.env.VITE_AUTH_PROVIDER || '').toLowerCase();
-  const apiConfigured = !!import.meta.env.VITE_API_URL;
+  const apiConfigured = AUTH_PROVIDER === 'api' && !!String(import.meta.env.VITE_API_URL || '').trim();
   const allowFirebaseFallback = !apiConfigured && AUTH_PROVIDER === 'firebase';
 
   const hasApiToken = () => {
@@ -36,6 +36,41 @@ export const AuthProvider = ({ children }) => {
   const isLikelyEmail = (value) => {
     const normalized = String(value || '').trim();
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized);
+  };
+
+  const getAdminProfileFromFirestore = async (firebaseUser) => {
+    const collectionsToCheck = ['users', 'profiles'];
+    const normalizedEmail = String(firebaseUser?.email || '').trim().toLowerCase();
+
+    for (const collectionName of collectionsToCheck) {
+      const byUidDoc = await getDoc(doc(db, collectionName, firebaseUser.uid));
+      if (byUidDoc.exists()) {
+        const data = byUidDoc.data();
+        if (data?.isAdmin === true || String(data?.user_type || '').toLowerCase() === 'admin') {
+          return data;
+        }
+      }
+
+      if (!normalizedEmail) {
+        continue;
+      }
+
+      const profileQuery = query(
+        collection(db, collectionName),
+        where('email', '==', normalizedEmail),
+        limit(1)
+      );
+      const byEmailSnapshot = await getDocs(profileQuery);
+
+      if (!byEmailSnapshot.empty) {
+        const profileData = byEmailSnapshot.docs[0].data();
+        if (profileData?.isAdmin === true || String(profileData?.user_type || '').toLowerCase() === 'admin') {
+          return profileData;
+        }
+      }
+    }
+
+    return null;
   };
 
   // 2. Firebase "Watcher" - This checks if you are logged in automatically
@@ -87,14 +122,19 @@ export const AuthProvider = ({ children }) => {
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // If user exists in Auth, check if they are an Admin in Firestore
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        
-        if (userDoc.exists() && userDoc.data().isAdmin === true) {
-          setUser({ ...firebaseUser, ...userDoc.data() });
-          setIsAuthenticated(true);
-        } else {
-          // Not an admin? Log them out!
+        try {
+          const adminProfile = await getAdminProfileFromFirestore(firebaseUser);
+
+          if (adminProfile) {
+            setUser({ ...firebaseUser, ...adminProfile });
+            setIsAuthenticated(true);
+          } else {
+            await signOut(auth);
+            setUser(null);
+            setIsAuthenticated(false);
+          }
+        } catch (error) {
+          console.error('Admin profile lookup failed:', error);
           await signOut(auth);
           setUser(null);
           setIsAuthenticated(false);
@@ -130,11 +170,13 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // 3. New Firebase Login Logic
-  const login = async (email, password) => {
+  const login = async (identifier, password) => {
+    const normalizedIdentifier = String(identifier || '').trim();
+
     // If an API backend is configured, use it for login
     if (apiConfigured) {
       try {
-        const data = await loginAPI(email, password);
+        const data = await loginAPI(normalizedIdentifier, password);
         const normalizedToken = String(
           data?.accessToken ||
           data?.raw?.idToken ||
@@ -191,7 +233,7 @@ export const AuthProvider = ({ children }) => {
 
         if (firebaseInitialized) {
           const firebaseLoginEmail = [
-            isLikelyEmail(email) ? email : '',
+            isLikelyEmail(normalizedIdentifier) ? normalizedIdentifier : '',
             resolvedUser?.email,
             data?.user?.email,
             data?.raw?.email,
@@ -241,24 +283,49 @@ export const AuthProvider = ({ children }) => {
       return { success: true };
     }
 
+    if (!isLikelyEmail(normalizedIdentifier)) {
+      return {
+        success: false,
+        error: 'Firebase login requires your email address. Usernames work only in API mode.',
+      };
+    }
+
     try {
       // Sign in with Firebase
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, normalizedIdentifier, password);
       const firebaseUser = userCredential.user;
 
-      // Immediately check if this person is an Admin in your "users" collection
-      const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+      const adminProfile = await getAdminProfileFromFirestore(firebaseUser);
 
-      if (userDoc.exists() && userDoc.data().isAdmin === true) {
-        setUser({ ...firebaseUser, ...userDoc.data() });
+      if (adminProfile) {
+        setUser({ ...firebaseUser, ...adminProfile });
         setIsAuthenticated(true);
         return { success: true };
       } else {
         await signOut(auth); // Kick them out if not admin
-        return { success: false, error: "Access Denied: You are not an Admin." };
+        return {
+          success: false,
+          error: 'Access Denied: Admin profile not found for this Firebase account. Ensure users/{uid} exists with isAdmin=true.',
+        };
       }
     } catch (error) {
       console.error('Login error:', error);
+      const errorCode = String(error?.code || '');
+
+      if (errorCode === 'auth/invalid-credential' || errorCode === 'auth/user-not-found' || errorCode === 'auth/wrong-password') {
+        return {
+          success: false,
+          error: 'Invalid email or password.',
+        };
+      }
+
+      if (errorCode === 'auth/too-many-requests') {
+        return {
+          success: false,
+          error: 'Too many failed attempts. Please wait a moment and try again.',
+        };
+      }
+
       return { 
         success: false, 
         error: "Login failed. Check your email/password." 

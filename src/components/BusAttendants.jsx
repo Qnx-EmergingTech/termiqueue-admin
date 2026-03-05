@@ -6,12 +6,20 @@ import SuccessModal from './SuccessModal';
 import ConfirmationModal from './ConfirmationModal';
 import {
   archiveBusAttendant,
+  claimBus,
   createBusAttendant,
+  fetchAttendantMyBusAssignments,
   fetchBusAttendants,
   fetchBuses,
   unarchiveBusAttendant,
   updateBusAttendant,
 } from '../services/api';
+import {
+  cleanupBusAttendantDataOnce,
+  setBusAttendantArchivedInFirebase,
+  syncBusAttendantToFirebase,
+} from '../services/busAttendantFirebaseSyncService';
+import { provisionBusAttendantAuthUser } from '../services/busAttendantAuthProvisioningService';
 
 const EMPTY_FORM = {
   first_name: '',
@@ -96,6 +104,23 @@ function BusAttendants() {
     return 0;
   };
 
+  const formatAccountCreated = (attendant) => {
+    const timestamp = normalizeTimestamp(
+      attendant?.created_at ||
+      attendant?.raw?.created_at
+    );
+
+    if (!timestamp) {
+      return '-';
+    }
+
+    try {
+      return new Date(timestamp).toLocaleString();
+    } catch {
+      return '-';
+    }
+  };
+
   const getRequestErrorMessage = (err, fallbackMessage) => {
     const validationDetails = err?.response?.data?.detail;
     const statusCode = err?.response?.status;
@@ -126,7 +151,51 @@ function BusAttendants() {
     return rawMessage;
   };
 
+  const syncAttendantProfile = async (profile) => {
+    try {
+      const syncResult = await syncBusAttendantToFirebase(profile);
+
+      if (!syncResult?.synced) {
+        const reason = String(syncResult?.reason || 'unknown');
+        const warning = reason === 'firebase-not-configured'
+          ? 'Saved locally/API, but Firebase is not configured in this environment.'
+          : 'Saved locally/API, but Firebase profile sync did not complete.';
+        setError((previous) => previous || warning);
+        return { synced: false, warning, userId: '', profileId: '' };
+      }
+
+      return {
+        synced: true,
+        warning: '',
+        userId: String(syncResult?.userId || '').trim(),
+        profileId: String(syncResult?.profileId || '').trim(),
+      };
+    } catch (syncError) {
+      console.error('Failed to sync bus attendant profile to Firebase:', syncError);
+      const warning = 'Saved to API/local data, but Firebase profile sync failed.';
+      setError((previous) => previous || warning);
+      return { synced: false, warning, userId: '', profileId: '' };
+    }
+  };
+
+  const getAttendantIdentityKeys = (attendant) => {
+    const normalizedEmail = String(attendant?.email || attendant?.raw?.email || '').trim().toLowerCase();
+    const normalizedUsername = String(
+      attendant?.username_lower || attendant?.username || attendant?.raw?.username_lower || attendant?.raw?.username || ''
+    ).trim().toLowerCase();
+    const normalizedId = String(attendant?.id || attendant?.uid || attendant?.user_id || '').trim().toLowerCase();
+
+    return [normalizedEmail, normalizedUsername, normalizedId].filter(Boolean);
+  };
+
+  const matchesAttendantIdentity = (leftAttendant, rightAttendant) => {
+    const leftKeys = getAttendantIdentityKeys(leftAttendant);
+    const rightKeys = new Set(getAttendantIdentityKeys(rightAttendant));
+    return leftKeys.some((key) => rightKeys.has(key));
+  };
+
   const toLowerId = (value) => String(value || '').trim().toLowerCase();
+  const toLowerText = (value) => String(value || '').trim().toLowerCase();
 
   const createBusLookup = (busList) => {
     const lookup = new Map();
@@ -136,7 +205,9 @@ function BusAttendants() {
         bus?.bus_id,
         bus?.busId,
         bus?.busNumber,
+        bus?.bus_number,
         bus?.plateNumber,
+        bus?.plate_number,
       ];
 
       keys.forEach((key) => {
@@ -150,15 +221,63 @@ function BusAttendants() {
     return lookup;
   };
 
-  const enrichAttendant = (attendant, busList, busLookup) => {
+  const enrichAttendant = (attendant, busList, busLookup, myBusMatch) => {
     const lookup = busLookup || createBusLookup(busList);
+    const normalizedBusList = Array.isArray(busList) ? busList : [];
+
+    const getBusKeys = (busItem) => {
+      return [
+        busItem?.id,
+        busItem?.bus_id,
+        busItem?.busId,
+        busItem?.busNumber,
+        busItem?.bus_number,
+        busItem?.plateNumber,
+        busItem?.plate_number,
+      ].map((value) => toLowerId(value)).filter(Boolean);
+    };
+
+    const findUniqueBusForCandidate = (candidateValue) => {
+      const normalizedCandidate = toLowerId(candidateValue);
+      if (!normalizedCandidate) {
+        return null;
+      }
+
+      const directFromLookup = lookup.get(normalizedCandidate) || null;
+      const explicitMatches = normalizedBusList.filter((busItem) => getBusKeys(busItem).includes(normalizedCandidate));
+
+      if (explicitMatches.length === 1) {
+        return explicitMatches[0];
+      }
+
+      if (explicitMatches.length > 1) {
+        return null;
+      }
+
+      return directFromLookup;
+    };
     const assignedBusCandidates = [
+      myBusMatch?.busId,
+      myBusMatch?.busNumber,
+      myBusMatch?.busPlateNumber,
       attendant?.assignedBusId,
       attendant?.assigned_bus_id,
+      attendant?.assignedBusNumber,
+      attendant?.assigned_bus_number,
+      attendant?.assignedBusPlateNumber,
+      attendant?.assigned_bus_plate_number,
+      attendant?.bus_number,
+      attendant?.plate_number,
       attendant?.bus_id,
       attendant?.busId,
       attendant?.raw?.assignedBusId,
       attendant?.raw?.assigned_bus_id,
+      attendant?.raw?.assignedBusNumber,
+      attendant?.raw?.assigned_bus_number,
+      attendant?.raw?.assignedBusPlateNumber,
+      attendant?.raw?.assigned_bus_plate_number,
+      attendant?.raw?.bus_number,
+      attendant?.raw?.plate_number,
       attendant?.raw?.bus_id,
       attendant?.raw?.busId,
     ]
@@ -167,7 +286,7 @@ function BusAttendants() {
 
     let assignedBus = null;
     for (const candidate of assignedBusCandidates) {
-      assignedBus = lookup.get(toLowerId(candidate)) || null;
+      assignedBus = findUniqueBusForCandidate(candidate);
       if (assignedBus) {
         break;
       }
@@ -187,21 +306,74 @@ function BusAttendants() {
         attendant?.raw?.username_lower,
       ].map((value) => toLowerId(value)).filter(Boolean));
 
-      assignedBus = (Array.isArray(busList) ? busList : []).find((bus) => {
+      const matchedByAttendantId = normalizedBusList.filter((bus) => {
         const busAttendantId = toLowerId(bus?.attendantId || bus?.attendant_id);
         return busAttendantId && attendantIdentifiers.has(busAttendantId);
-      }) || null;
+      });
+
+      assignedBus = matchedByAttendantId.length === 1 ? matchedByAttendantId[0] : null;
     }
 
+    if (!assignedBus) {
+      const attendantNameCandidates = [
+        attendant?.full_name,
+        attendant?.fullName,
+        attendant?.name,
+        `${String(attendant?.first_name || '').trim()} ${String(attendant?.last_name || '').trim()}`,
+        `${String(attendant?.raw?.first_name || '').trim()} ${String(attendant?.raw?.last_name || '').trim()}`,
+      ]
+        .map((value) => toLowerText(value))
+        .filter(Boolean);
+
+      if (attendantNameCandidates.length > 0) {
+        const matchedByName = normalizedBusList.filter((bus) => {
+          const busAttendantName = toLowerText(bus?.busAttendant || bus?.attendant_name || bus?.bus_attendant);
+          return busAttendantName && attendantNameCandidates.some((nameCandidate) => nameCandidate === busAttendantName);
+        });
+
+        assignedBus = matchedByName.length === 1 ? matchedByName[0] : null;
+      }
+    }
+
+    const getBusNumber = (busItem) => String(
+      busItem?.busNumber || busItem?.bus_number || busItem?.busNo || busItem?.code || ''
+    ).trim();
+
+    const getBusPlateNumber = (busItem) => String(
+      busItem?.plateNumber || busItem?.plate_number || busItem?.plateNo || ''
+    ).trim();
+
     const resolvedAssignedBusId = String(
-      assignedBusCandidates[0] || assignedBus?.id || assignedBus?.bus_id || attendant?.assignedBusId || ''
+      assignedBus?.id || assignedBus?.bus_id || assignedBusCandidates[0] || attendant?.assignedBusId || ''
+    ).trim();
+
+    const fallbackAssignedBusNumber = String(
+      myBusMatch?.busNumber ||
+      attendant?.assignedBusNumber ||
+      attendant?.assigned_bus_number ||
+      attendant?.bus_number ||
+      attendant?.raw?.assignedBusNumber ||
+      attendant?.raw?.assigned_bus_number ||
+      attendant?.raw?.bus_number ||
+      ''
+    ).trim();
+
+    const fallbackAssignedBusPlateNumber = String(
+      myBusMatch?.busPlateNumber ||
+      attendant?.assignedBusPlateNumber ||
+      attendant?.assigned_bus_plate_number ||
+      attendant?.plate_number ||
+      attendant?.raw?.assignedBusPlateNumber ||
+      attendant?.raw?.assigned_bus_plate_number ||
+      attendant?.raw?.plate_number ||
+      ''
     ).trim();
 
     return {
       ...attendant,
       assignedBusId: resolvedAssignedBusId,
-      assignedBusNumber: assignedBus?.busNumber || '-',
-      assignedBusPlateNumber: assignedBus?.plateNumber || '-',
+      assignedBusNumber: getBusNumber(assignedBus) || fallbackAssignedBusNumber || '-',
+      assignedBusPlateNumber: getBusPlateNumber(assignedBus) || fallbackAssignedBusPlateNumber || '-',
       latestUpdated: normalizeTimestamp(
         attendant.updatedAt ||
         attendant.updated_at ||
@@ -218,9 +390,50 @@ function BusAttendants() {
     };
   };
 
-  const buildEnrichedAttendants = (profiles, busList) => {
+  const createMyBusLookup = (assignments) => {
+    const lookup = new Map();
+
+    (Array.isArray(assignments) ? assignments : []).forEach((assignment) => {
+      const keys = [
+        String(assignment?.attendantId || '').trim().toLowerCase(),
+        String(assignment?.email || '').trim().toLowerCase(),
+        String(assignment?.username || '').trim().toLowerCase(),
+      ].filter(Boolean);
+
+      keys.forEach((key) => {
+        if (!lookup.has(key)) {
+          lookup.set(key, assignment);
+        }
+      });
+    });
+
+    return lookup;
+  };
+
+  const getMyBusMatchForAttendant = (attendant, myBusLookup) => {
+    if (!myBusLookup || myBusLookup.size === 0) {
+      return null;
+    }
+
+    const keys = getAttendantIdentityKeys(attendant);
+    for (const key of keys) {
+      const match = myBusLookup.get(String(key || '').toLowerCase());
+      if (match) {
+        return match;
+      }
+    }
+
+    return null;
+  };
+
+  const buildEnrichedAttendants = (profiles, busList, myBusAssignments = []) => {
     const lookup = createBusLookup(busList);
-    return (Array.isArray(profiles) ? profiles : []).map((attendant) => enrichAttendant(attendant, busList, lookup));
+    const myBusLookup = createMyBusLookup(myBusAssignments);
+
+    return (Array.isArray(profiles) ? profiles : []).map((attendant) => {
+      const myBusMatch = getMyBusMatchForAttendant(attendant, myBusLookup);
+      return enrichAttendant(attendant, busList, lookup, myBusMatch);
+    });
   };
 
   const loadData = async () => {
@@ -228,14 +441,21 @@ function BusAttendants() {
     setError('');
 
     try {
-      const [profiles, busList] = await Promise.all([
+      try {
+        await cleanupBusAttendantDataOnce();
+      } catch (cleanupError) {
+        console.warn('Legacy bus attendant cleanup skipped:', cleanupError);
+      }
+
+      const [profiles, busList, myBusAssignments] = await Promise.all([
         fetchBusAttendants(),
         fetchBuses().catch(() => []),
+        fetchAttendantMyBusAssignments().catch(() => []),
       ]);
 
       const normalizedBuses = Array.isArray(busList) ? busList : [];
       setBuses(normalizedBuses);
-      setAttendants(buildEnrichedAttendants(profiles, normalizedBuses));
+      setAttendants(buildEnrichedAttendants(profiles, normalizedBuses, myBusAssignments));
     } catch (err) {
       setError(getRequestErrorMessage(err, 'Failed to load bus attendants.'));
       setAttendants([]);
@@ -475,6 +695,7 @@ function BusAttendants() {
       last_name: addForm.last_name,
       email: addForm.email,
       birthdate: addForm.birthdate,
+      assignedBusId: addForm.assignedBusId,
       username: generatedUsername,
       username_lower: generatedUsername.toLowerCase(),
       password: generatedPassword,
@@ -510,28 +731,66 @@ function BusAttendants() {
 
     try {
       const createdAttendant = await createBusAttendant(payload);
-      const [freshProfiles, freshBuses] = await Promise.all([
+
+      if (payload.assignedBusId) {
+        try {
+          await claimBus(payload.assignedBusId, {
+            profile_id: createdAttendant?.id,
+            user_id: createdAttendant?.id,
+            attendant_id: createdAttendant?.id,
+            username: payload.username,
+            email: payload.email,
+            attendant_name: `${payload.first_name} ${payload.last_name}`.trim(),
+          });
+        } catch (claimError) {
+          console.warn('Failed to claim bus for new attendant:', claimError);
+          setError((previous) => previous || 'Attendant created, but bus assignment claim failed.');
+        }
+      }
+
+      const authProvisionResult = await provisionBusAttendantAuthUser({
+        email: payload.email,
+        password: generatedPassword,
+        displayName: `${payload.first_name} ${payload.last_name}`,
+      });
+
+      let authWarning = '';
+      if (!authProvisionResult?.provisioned) {
+        authWarning = 'Profile saved, but Firebase Authentication user was not created.';
+        setError((previous) => previous || authWarning);
+      }
+
+      const syncStatus = await syncAttendantProfile({ ...payload, ...createdAttendant });
+      const [freshProfiles, freshBuses, myBusAssignments] = await Promise.all([
         fetchBusAttendants(),
         fetchBuses().catch(() => buses),
+        fetchAttendantMyBusAssignments().catch(() => []),
       ]);
+
+      const canonicalCreatedAttendant = {
+        ...payload,
+        ...createdAttendant,
+        id: syncStatus?.userId || createdAttendant?.id,
+        updatedAt: Date.now(),
+      };
 
       const normalizedBuses = Array.isArray(freshBuses) ? freshBuses : buses;
       const hasCreated = Array.isArray(freshProfiles)
-        ? freshProfiles.some((profile) => String(profile.id) === String(createdAttendant.id))
+        ? freshProfiles.some((profile) => matchesAttendantIdentity(profile, canonicalCreatedAttendant))
         : false;
 
       const withNewFallback = hasCreated
         ? freshProfiles
         : [
           ...freshProfiles,
-          {
-            ...createdAttendant,
-            ...payload,
-          },
+          canonicalCreatedAttendant,
         ];
 
       setBuses(normalizedBuses);
-      setAttendants(buildEnrichedAttendants(withNewFallback, normalizedBuses));
+      setAttendants(buildEnrichedAttendants(withNewFallback, normalizedBuses, myBusAssignments));
+      setSortBy('latestUpdated');
+      setSortOrder('desc');
+      setCurrentPage(1);
       closeCreateConfirmation();
       setShowAddModal(false);
       setAddForm(EMPTY_FORM);
@@ -540,7 +799,13 @@ function BusAttendants() {
         open: true,
         title: 'Bus Attendant Added',
         message: `${payload.first_name} ${payload.last_name} has been added successfully.`,
-        detail: `Username: ${generatedUsername} | Password: ${generatedPassword}`,
+        detail: [
+          `Username: ${generatedUsername} | Password: ${generatedPassword}`,
+          authProvisionResult?.provisioned
+            ? (authProvisionResult?.existed ? 'Firebase Auth: existing account reused.' : 'Firebase Auth: account created.')
+            : authWarning,
+          syncStatus?.warning,
+        ].filter(Boolean).join(' | '),
         autoCloseMs: 0,
       });
     } catch (err) {
@@ -549,13 +814,14 @@ function BusAttendants() {
 
       if (normalizedMessage.includes('profile already completed')) {
         try {
-          const [freshProfiles, freshBuses] = await Promise.all([
+          const [freshProfiles, freshBuses, myBusAssignments] = await Promise.all([
             fetchBusAttendants(),
             fetchBuses().catch(() => buses),
+            fetchAttendantMyBusAssignments().catch(() => []),
           ]);
 
           const normalizedBuses = Array.isArray(freshBuses) ? freshBuses : buses;
-          const enrichedAttendants = buildEnrichedAttendants(freshProfiles, normalizedBuses);
+          const enrichedAttendants = buildEnrichedAttendants(freshProfiles, normalizedBuses, myBusAssignments);
           const existingProfile = enrichedAttendants.find(
             (attendant) => String(attendant.email || '').trim().toLowerCase() === String(payload.email || '').trim().toLowerCase()
           );
@@ -651,6 +917,8 @@ function BusAttendants() {
     setError('');
 
     try {
+      const assignmentChanged = String(editForm.assignedBusId || '').trim() !== String(selectedAttendant.assignedBusId || '').trim();
+
       const updatedAttendant = await updateBusAttendant(selectedAttendant.id, {
         first_name: editForm.first_name,
         last_name: editForm.last_name,
@@ -658,13 +926,31 @@ function BusAttendants() {
         assignedBusId: editForm.assignedBusId,
       });
 
+      if (assignmentChanged && editForm.assignedBusId) {
+        try {
+          await claimBus(editForm.assignedBusId, {
+            profile_id: selectedAttendant.id,
+            user_id: selectedAttendant.id,
+            attendant_id: selectedAttendant.id,
+            username: updatedAttendant?.username || selectedAttendant?.username,
+            email: editForm.email || selectedAttendant?.email,
+            attendant_name: `${editForm.first_name} ${editForm.last_name}`.trim(),
+          });
+        } catch (claimError) {
+          console.warn('Failed to claim bus on attendant update:', claimError);
+          setError((previous) => previous || 'Details saved, but bus assignment claim failed.');
+        }
+      }
+
+      const syncStatus = await syncAttendantProfile(updatedAttendant);
+
       replaceAttendantInState(updatedAttendant);
       setIsEditingDetails(false);
       setSuccessModal({
         open: true,
         title: 'Details Updated',
         message: 'Bus attendant details were saved successfully.',
-        detail: '',
+        detail: syncStatus?.warning || '',
         autoCloseMs: 5000,
       });
     } catch (err) {
@@ -705,6 +991,22 @@ function BusAttendants() {
         ? await archiveBusAttendant(attendantId)
         : await unarchiveBusAttendant(attendantId);
 
+      let archiveSyncWarning = '';
+      try {
+        const syncResult = await setBusAttendantArchivedInFirebase(updatedAttendant, shouldArchive);
+        if (!syncResult?.synced) {
+          const reason = String(syncResult?.reason || 'unknown');
+          archiveSyncWarning = reason === 'firebase-not-configured'
+            ? 'Firebase is not configured, so archive state was saved locally/API only.'
+            : 'Archive state was saved locally/API, but Firebase sync did not complete.';
+          setError((previous) => previous || archiveSyncWarning);
+        }
+      } catch (syncError) {
+        console.error('Failed to sync archive state to Firebase:', syncError);
+        archiveSyncWarning = 'Saved to API/local data, but Firebase archive sync failed.';
+        setError((previous) => previous || archiveSyncWarning);
+      }
+
       replaceAttendantInState(updatedAttendant);
 
       setSuccessModal({
@@ -713,7 +1015,7 @@ function BusAttendants() {
         message: shouldArchive
           ? 'The bus attendant was moved to archived.'
           : 'The bus attendant is active again.',
-        detail: '',
+        detail: archiveSyncWarning,
         autoCloseMs: 5000,
       });
 
@@ -1024,6 +1326,23 @@ function BusAttendants() {
                   <p className="info-note">
                     Username and password are generated automatically after creating this account.
                   </p>
+
+                  <div className="form-group">
+                    <label htmlFor="assignedBusId">Assigned Bus</label>
+                    <select
+                      id="assignedBusId"
+                      name="assignedBusId"
+                      value={addForm.assignedBusId}
+                      onChange={handleAddInputChange}
+                    >
+                      <option value="">Unassigned</option>
+                      {visibleBusOptions.map((bus) => (
+                        <option key={bus.id} value={bus.id}>
+                          {String(bus.busNumber || bus.bus_number || 'N/A')} ({String(bus.plateNumber || bus.plate_number || 'N/A')})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -1099,6 +1418,11 @@ function BusAttendants() {
                     ) : (
                       <span className="info-value">{selectedAttendant.email || '-'}</span>
                     )}
+                  </div>
+
+                  <div className="info-row">
+                    <span className="info-label">Account Created:</span>
+                    <span className="info-value">{formatAccountCreated(selectedAttendant)}</span>
                   </div>
                 </div>
 
