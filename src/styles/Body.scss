@@ -2,7 +2,7 @@
 @use '../App.scss' as *;
 
 .content {
-  margin-left: 15%; /* Adjust for the sidebar width */
+  margin-left: clamp(220px, 18vw, 280px); /* Match sidebar width */
   padding: 2rem;
   min-height: 100vh; /* Ensure content takes up full height */
   background-color: #f5f5f5; /* Add a background color for better visibility */
@@ -73,6 +73,16 @@
 .dashboard-warning-banner {
   border: 1px solid color.adjust($secondary-color, $lightness: 12%);
   background: color.adjust($secondary-color, $lightness: 38%);
+  color: $black;
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+.dashboard-info-banner {
+  border: 1px solid $faded-alt;
+  background: $accent-color;
   color: $black;
   border-radius: 10px;
   padding: 0.85rem 1rem;
@@ -153,6 +163,232 @@
   }
 }
 
+.dashboard-filters {
+  display: flex;
+  align-items: flex-start;
+  gap: 3rem;
+  flex-wrap: wrap;
+
+  > * {
+    flex: 0 0 auto;
+  }
+
+  > .dashboard-filter-item {
+    width: 250px;
+  }
+
+  > .dashboard-range-reset-btn {
+    width: auto;
+  }
+
+  @media (max-width: 860px) {
+    align-items: stretch;
+
+    > .dashboard-filter-item,
+    > .dashboard-range-reset-btn {
+      width: 100%;
+    }
+  }
+}
+
+.dashboard-filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 220px;
+
+  label {
+    font-size: 0.82rem;
+    color: $primary-color;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-transform: none;
+    line-height: 1.2;
+    padding-left: 0.15rem;
+    text-align: left;
+  }
+
+  input,
+  .dashboard-date-picker-input {
+    height: 2.6rem;
+    min-width: 0;
+    border-radius: 12px;
+    border: 1px solid color.adjust($faded-alt, $lightness: 10%);
+    background: #fdfefe;
+    color: $black;
+    padding: 0 0.85rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+}
+
+.dashboard-date-picker-wrap {
+  min-width: 220px;
+}
+
+.dashboard-date-picker-wrap,
+.dashboard-date-picker-wrap .react-datepicker-wrapper,
+.dashboard-date-picker-wrap .react-datepicker__input-container {
+  width: 100%;
+}
+
+.dashboard-date-picker-input {
+  width: 100%;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.dashboard-date-picker-input:focus {
+  outline: none;
+  border-color: $primary-color;
+  box-shadow: 0 0 0 3px rgba(9, 107, 114, 0.12);
+}
+
+.dashboard-range-reset-btn {
+  height: 2.6rem;
+  align-self: end;
+  white-space: nowrap;
+  margin-bottom: 0;
+  min-width: 132px;
+}
+
+@media (max-width: 860px) {
+  .dashboard-range-reset-btn {
+    width: 100%;
+  }
+}
+
+.dashboard-date-calendar {
+  font-family: inherit;
+}
+
+.dashboard-date-popper {
+  z-index: 1400;
+  margin-top: 0.35rem;
+}
+
+.react-datepicker {
+  border: 1px solid color.adjust($faded-alt, $lightness: 10%);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.14);
+}
+
+.react-datepicker__header {
+  background: $primary-color;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding-top: 0.6rem;
+}
+
+.react-datepicker__current-month,
+.react-datepicker-time__header,
+.react-datepicker-year-header {
+  color: white;
+  font-weight: 600;
+}
+
+.react-datepicker__month-dropdown-container,
+.react-datepicker__year-dropdown-container {
+  margin: 0 0.25rem;
+}
+
+.react-datepicker__month-select,
+.react-datepicker__year-select {
+  height: 1.95rem;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 8px;
+  background: white;
+  color: $primary-color;
+  padding: 0 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.react-datepicker__navigation {
+  top: 0.72rem;
+}
+
+.react-datepicker__navigation--previous {
+  left: 0.7rem;
+}
+
+.react-datepicker__navigation--next {
+  right: 0.7rem;
+}
+
+.react-datepicker__month {
+  margin: 0.55rem;
+}
+
+.react-datepicker__day,
+.react-datepicker__day-name {
+  width: 2.2rem;
+  line-height: 2.2rem;
+  margin: 0.12rem;
+  border-radius: 8px;
+}
+
+.react-datepicker__day-name {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.react-datepicker__day--selected,
+.react-datepicker__day--keyboard-selected {
+  background-color: $primary-color;
+  color: white;
+}
+
+.react-datepicker__day:hover {
+  background-color: $accent-color;
+  color: $primary-color;
+}
+
+.react-datepicker__day--today {
+  font-weight: 700;
+  color: $primary-color;
+}
+
+.react-datepicker__triangle {
+  display: none;
+}
+
+.react-datepicker__navigation-icon::before {
+  border-color: white;
+}
+
+.date-range-presets {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.15rem;
+}
+
+.date-preset-btn {
+  height: 2.15rem;
+  padding: 0 0.8rem;
+  border: 1px solid color.adjust($faded-alt, $lightness: 10%);
+  border-radius: 999px;
+  background: #f7fafa;
+  color: $faded-black;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: $primary-color;
+    color: $primary-color;
+    background: $accent-color;
+  }
+
+  &:active {
+    transform: none;
+  }
+}
+
 .report-btn {
   height: 2.6rem;
   padding: 0 1rem;
@@ -222,7 +458,7 @@
   align-items: center;
   justify-content: center;
   color: $primary-color;
-  background: color.adjust($primary-color, $lightness: 56%);
+  background: $accent-color;
   font-size: 1.25rem;
 }
 
@@ -234,6 +470,109 @@
   @media (max-width: 1100px) {
     grid-template-columns: 1fr;
   }
+}
+
+.dashboard-insights-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+
+  @media (max-width: 1100px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dashboard-insight-panel {
+  padding: 1rem;
+}
+
+.dashboard-metric-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.dashboard-metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px dashed color.adjust($faded-alt, $lightness: 22%);
+  padding-bottom: 0.35rem;
+
+  span {
+    color: $faded-black;
+    font-size: 0.92rem;
+  }
+
+  strong {
+    color: $black;
+    font-size: 0.95rem;
+  }
+}
+
+.dashboard-mini-table-wrap {
+  overflow-x: auto;
+}
+
+.dashboard-mini-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  th,
+  td {
+    text-align: left;
+    padding: 0.55rem 0.45rem;
+    font-size: 0.88rem;
+    border-bottom: 1px solid color.adjust($faded-alt, $lightness: 20%);
+    white-space: nowrap;
+  }
+
+  th {
+    font-weight: 700;
+    color: $black;
+    background: color.adjust($accent-color, $lightness: 2%);
+  }
+}
+
+.dashboard-exceptions-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+
+  li {
+    border-radius: 8px;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.9rem;
+    line-height: 1.35;
+    border: 1px solid transparent;
+  }
+
+  .exception-critical {
+    background: #fdecec;
+    color: #8e1f28;
+    border-color: #f3c4c9;
+  }
+
+  .exception-warning {
+    background: #fff7e6;
+    color: #8a5b00;
+    border-color: #f0ddb0;
+  }
+
+  .exception-good {
+    background: #e8f7ef;
+    color: #1f6b42;
+    border-color: #bfe7d0;
+  }
+}
+
+.dashboard-empty-note {
+  margin: 0;
+  color: $faded-black;
+  font-size: 0.9rem;
 }
 
 .dashboard-panel {
@@ -348,4 +687,109 @@
   display: flex;
   justify-content: flex-end;
   gap: 0.6rem;
+}
+
+.dashboard-report-builder {
+  max-width: 760px;
+}
+
+.dashboard-report-builder-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 1rem;
+}
+
+.dashboard-report-builder-modal {
+  width: min(760px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid color.adjust($faded-alt, $lightness: 18%);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+}
+
+.dashboard-report-builder-header {
+  background: $primary-color;
+  color: white;
+  padding: 15px 25px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 12px 12px 0 0;
+
+  h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+  }
+}
+
+.dashboard-report-builder-close-btn {
+  border: none;
+  background: transparent;
+  color: white;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
+
+.dashboard-report-builder-body {
+  padding: 1.5rem;
+}
+
+.dashboard-report-builder-actions {
+  margin-top: 2rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.report-sections-grid {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+
+  @media (max-width: 680px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.report-section-option {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid color.adjust($faded-alt, $lightness: 18%);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  background: #fff;
+
+  input {
+    width: 16px;
+    height: 16px;
+    accent-color: $primary-color;
+  }
+
+  span {
+    color: $black;
+    font-size: 0.9rem;
+    font-weight: 500;
+  }
 }

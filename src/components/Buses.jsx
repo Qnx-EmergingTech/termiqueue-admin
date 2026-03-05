@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { MdChevronRight } from 'react-icons/md';
 import '../styles/Body.scss';
 import '../styles/Requests.scss';
 import TableSkeletonRows from './TableSkeletonRows';
-import { createBus, deleteBus, fetchBuses, updateBus } from '../services/api';
+import { createBus, deleteBus, fetchBuses, fetchQueues, updateBus } from '../services/api';
 import { syncBusToFirebase } from '../services/busFirebaseSyncService';
 import SuccessModal from './SuccessModal';
+import ConfirmationModal from './ConfirmationModal';
 
 function Buses() {
   const [buses, setBuses] = useState([]); // Use empty array [] when API is ready
@@ -24,6 +25,8 @@ function Buses() {
   const [sortOrder, setSortOrder] = useState('desc');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [queueRoutes, setQueueRoutes] = useState([]);
+  const [queueRoutesError, setQueueRoutesError] = useState(null);
   const [successModal, setSuccessModal] = useState({
     open: false,
     title: '',
@@ -38,6 +41,9 @@ function Buses() {
     open: false,
     busIds: [],
   });
+  const [saveConfirmModal, setSaveConfirmModal] = useState({
+    open: false,
+  });
   const [newBus, setNewBus] = useState({
     busNumber: '',
     route: '',
@@ -45,12 +51,62 @@ function Buses() {
     status: 'Available',
     plateNumber: '',
     capacity: '',
-    busAttendant: '',
     busCompanyEmail: '',
     busCompanyContact: '',
-    registeredDestination: '',
-    busPhoto: null
+    registeredDestination: ''
   });
+
+  const parseRouteParts = (routeText, fallbackDestination = '') => {
+    const normalizedRoute = String(routeText || '').trim();
+    const normalizedFallbackDestination = String(fallbackDestination || '').trim();
+
+    if (!normalizedRoute) {
+      return { origin: '', destination: normalizedFallbackDestination };
+    }
+
+    const parts = normalizedRoute.split('-').map((part) => part.trim()).filter(Boolean);
+    if (parts.length < 2) {
+      return {
+        origin: parts[0] || '',
+        destination: normalizedFallbackDestination,
+      };
+    }
+
+    return {
+      origin: parts[0],
+      destination: parts.slice(1).join(' - ') || normalizedFallbackDestination,
+    };
+  };
+
+  const getRequestErrorMessage = (err, fallbackMessage) => {
+    const validationDetails = err?.response?.data?.detail;
+    const statusCode = err?.response?.status;
+    const method = String(err?.config?.method || '').toUpperCase();
+    const url = err?.config?.url;
+
+    if (Array.isArray(validationDetails) && validationDetails.length > 0) {
+      return validationDetails
+        .map((item) => {
+          const location = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : 'field';
+          return `${location}: ${item?.msg || 'invalid value'}`;
+        })
+        .join(' | ');
+    }
+
+    const rawMessage =
+      err?.response?.data?.message ||
+      err?.response?.data?.detail ||
+      err?.message ||
+      fallbackMessage;
+
+    if (statusCode || url) {
+      const requestLabel = [method, url].filter(Boolean).join(' ');
+      const statusLabel = statusCode ? `[${statusCode}] ` : '';
+      return `${statusLabel}${requestLabel ? `${requestLabel} - ` : ''}${rawMessage}`;
+    }
+
+    return rawMessage;
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -77,7 +133,7 @@ function Buses() {
         }
 
         console.error('Error loading buses from API:', err);
-        setError('Unable to reach the API. Please check your connection or login session.');
+        setError(getRequestErrorMessage(err, 'Failed to load buses from API.'));
         setBuses([]);
         setArchivedBuses([]);
       } finally {
@@ -94,6 +150,118 @@ function Buses() {
     };
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadQueueRoutes = async () => {
+      try {
+        const routes = await fetchQueues();
+
+        if (!isMounted) {
+          return;
+        }
+
+        setQueueRoutes(Array.isArray(routes) ? routes : []);
+        setQueueRoutesError(null);
+      } catch (err) {
+        if (!isMounted) {
+          return;
+        }
+
+        console.warn('Unable to load routes from /queues:', err);
+        setQueueRoutes([]);
+        setQueueRoutesError(getRequestErrorMessage(err, 'Failed to load routes from queues endpoint.'));
+      }
+    };
+
+    loadQueueRoutes();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const routeOptions = useMemo(() => {
+    const seen = new Set();
+
+    const queueBasedOptions = queueRoutes
+      .map((routeItem) => {
+        const origin = String(routeItem?.origin || '').trim();
+        const destination = String(routeItem?.destination || '').trim();
+
+        if (!origin || !destination) {
+          return null;
+        }
+
+        return {
+          origin,
+          destination,
+          label: `${origin} → ${destination}`,
+        };
+      })
+      .filter(Boolean);
+
+    const busBasedOptions = [...buses, ...archivedBuses]
+      .map((busItem) => {
+        const routeParts = parseRouteParts(busItem?.route, busItem?.registeredDestination);
+        if (!routeParts.origin || !routeParts.destination) {
+          return null;
+        }
+
+        return {
+          origin: routeParts.origin,
+          destination: routeParts.destination,
+          label: `${routeParts.origin} → ${routeParts.destination}`,
+        };
+      })
+      .filter(Boolean);
+
+    return [...queueBasedOptions, ...busBasedOptions]
+      .map((routeOption) => {
+        const key = `${routeOption.origin}::${routeOption.destination}`.toLowerCase();
+        if (seen.has(key)) {
+          return null;
+        }
+
+        seen.add(key);
+        return routeOption;
+      })
+      .filter(Boolean);
+  }, [queueRoutes, buses, archivedBuses]);
+
+  const originOptions = useMemo(() => {
+    const uniqueOrigins = new Set(routeOptions.map((option) => option.origin));
+    return Array.from(uniqueOrigins).sort((left, right) => left.localeCompare(right));
+  }, [routeOptions]);
+
+  const destinationOptions = useMemo(() => {
+    if (!newBus.route) {
+      return [];
+    }
+
+    const destinations = new Set(
+      routeOptions
+        .filter((option) => option.origin === newBus.route)
+        .map((option) => option.destination)
+    );
+
+    return Array.from(destinations).sort((left, right) => left.localeCompare(right));
+  }, [routeOptions, newBus.route]);
+
+  const editDestinationOptions = useMemo(() => {
+    if (!editingBus?.route) {
+      return [];
+    }
+
+    const destinations = new Set(
+      routeOptions
+        .filter((option) => option.origin === editingBus.route)
+        .map((option) => option.destination)
+    );
+
+    return Array.from(destinations).sort((left, right) => left.localeCompare(right));
+  }, [routeOptions, editingBus?.route]);
+
   // Filter buses based on search query
   const sourceBuses = viewMode === 'active' ? buses : archivedBuses;
 
@@ -104,7 +272,6 @@ function Buses() {
       bus.route.toLowerCase().includes(query) ||
       bus.busCompany.toLowerCase().includes(query) ||
       bus.plateNumber.toLowerCase().includes(query) ||
-      bus.busAttendant.toLowerCase().includes(query) ||
       bus.status.toLowerCase().includes(query)
     );
   });
@@ -183,21 +350,6 @@ function Buses() {
   const handleSortOrderToggle = () => {
     setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
     setCurrentPage(1);
-  };
-
-  const getRequestErrorMessage = (err, fallbackMessage) => {
-    const validationDetails = err?.response?.data?.detail;
-
-    if (Array.isArray(validationDetails) && validationDetails.length > 0) {
-      return validationDetails
-        .map((item) => {
-          const location = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : 'field';
-          return `${location}: ${item?.msg || 'invalid value'}`;
-        })
-        .join(' | ');
-    }
-
-    return err?.response?.data?.message || err?.message || fallbackMessage;
   };
 
   const renderRouteWithChevron = (routeValue) => {
@@ -467,9 +619,13 @@ function Buses() {
 
   // Handle row click
   const handleRowClick = (bus) => {
+    const routeParts = parseRouteParts(bus.route, bus.registeredDestination);
+
     setSelectedBus(bus);
     setEditingBus({
       ...bus,
+      route: routeParts.origin,
+      registeredDestination: routeParts.destination,
       capacity: String(bus.capacity ?? ''),
     });
     setIsEditingDetails(false);
@@ -482,15 +638,46 @@ function Buses() {
     setSelectedBus(null);
     setEditingBus(null);
     setIsEditingDetails(false);
+    setSaveConfirmModal({ open: false });
+  };
+
+  const openSaveConfirmation = () => {
+    if (!editingBus) {
+      return;
+    }
+
+    if (!editingBus.busNumber || !editingBus.route || !editingBus.busCompany ||
+      !editingBus.plateNumber || !editingBus.capacity ||
+      !editingBus.busCompanyEmail || !editingBus.busCompanyContact ||
+      !editingBus.registeredDestination) {
+      alert('Please fill in all required fields before saving.');
+      return;
+    }
+
+    setSaveConfirmModal({ open: true });
+  };
+
+  const closeSaveConfirmation = () => {
+    setSaveConfirmModal({ open: false });
   };
 
   const handleEditDetailsInputChange = (event) => {
     const { name, value } = event.target;
 
-    setEditingBus((previousBus) => ({
-      ...previousBus,
-      [name]: value,
-    }));
+    setEditingBus((previousBus) => {
+      if (name === 'route') {
+        return {
+          ...previousBus,
+          route: value,
+          registeredDestination: '',
+        };
+      }
+
+      return {
+        ...previousBus,
+        [name]: value,
+      };
+    });
   };
 
   const applyUpdatedBusToCollections = (updatedBus) => {
@@ -519,7 +706,7 @@ function Buses() {
     }
 
     if (!editingBus.busNumber || !editingBus.route || !editingBus.busCompany ||
-      !editingBus.plateNumber || !editingBus.capacity || !editingBus.busAttendant ||
+      !editingBus.plateNumber || !editingBus.capacity ||
       !editingBus.busCompanyEmail || !editingBus.busCompanyContact ||
       !editingBus.registeredDestination) {
       alert('Please fill in all required fields before saving.');
@@ -531,14 +718,22 @@ function Buses() {
       setError(null);
 
       const payload = {
-        ...editingBus,
+        busNumber: editingBus.busNumber,
+        route: editingBus.route,
+        busCompany: editingBus.busCompany,
+        status: editingBus.status,
+        plateNumber: editingBus.plateNumber,
         capacity: parseInt(editingBus.capacity, 10),
+        busCompanyEmail: editingBus.busCompanyEmail,
+        busCompanyContact: editingBus.busCompanyContact,
+        registeredDestination: editingBus.registeredDestination,
+        busPhoto: editingBus.busPhoto,
       };
 
       const updatedBusFromApi = await updateBus(selectedBus.id, payload);
       const mergedUpdatedBus = {
-        ...updatedBusFromApi,
         ...payload,
+        ...updatedBusFromApi,
         id: updatedBusFromApi?.id || selectedBus.id,
         lastUpdated: updatedBusFromApi?.lastUpdated || Date.now(),
       };
@@ -569,6 +764,7 @@ function Buses() {
         message: 'Bus details were updated successfully.',
         detail: firebaseSkipped ? 'Saved to API. Firebase sync is currently disabled.' : '',
       });
+      closeSaveConfirmation();
     } catch (err) {
       const message = getRequestErrorMessage(err, 'Failed to update bus details.');
       setError(message);
@@ -593,52 +789,30 @@ function Buses() {
       status: 'Available',
       plateNumber: '',
       capacity: '',
-      busAttendant: '',
       busCompanyEmail: '',
       busCompanyContact: '',
-      registeredDestination: '',
-      busPhoto: null
+      registeredDestination: ''
     });
   };
 
   // Handle input change in add bus form
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setNewBus(prev => ({
-      ...prev,
-      [name]: value
-    }));
-  };
 
-  const handleBusPhotoUpload = (e) => {
-    const file = e.target.files && e.target.files[0];
+    setNewBus((prev) => {
+      if (name === 'route') {
+        return {
+          ...prev,
+          route: value,
+          registeredDestination: '',
+        };
+      }
 
-    if (!file) {
-      return;
-    }
-
-    if (!file.type.startsWith('image/')) {
-      alert('Please upload a valid image file.');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const imageData = typeof reader.result === 'string' ? reader.result : null;
-
-      setNewBus((prevBus) => ({
-        ...prevBus,
-        busPhoto: imageData,
-      }));
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const removeBusPhoto = () => {
-    setNewBus((prevBus) => ({
-      ...prevBus,
-      busPhoto: null,
-    }));
+      return {
+        ...prev,
+        [name]: value,
+      };
+    });
   };
 
   // Handle form submit
@@ -647,7 +821,7 @@ function Buses() {
 
     // Validate required fields
     if (!newBus.busNumber || !newBus.route || !newBus.busCompany ||
-      !newBus.plateNumber || !newBus.capacity || !newBus.busAttendant ||
+      !newBus.plateNumber || !newBus.capacity ||
       !newBus.busCompanyEmail || !newBus.busCompanyContact ||
       !newBus.registeredDestination) {
       alert('Please fill in all required fields');
@@ -658,13 +832,20 @@ function Buses() {
       setLoading(true);
       setError(null);
       const newBusData = {
-        ...newBus,
-        capacity: parseInt(newBus.capacity)
+        busNumber: newBus.busNumber,
+        route: newBus.route,
+        busCompany: newBus.busCompany,
+        status: newBus.status,
+        plateNumber: newBus.plateNumber,
+        capacity: parseInt(newBus.capacity, 10),
+        busCompanyEmail: newBus.busCompanyEmail,
+        busCompanyContact: newBus.busCompanyContact,
+        registeredDestination: newBus.registeredDestination,
       };
       const createdBusFromApi = await createBus(newBusData);
       const mergedCreatedBus = {
-        ...createdBusFromApi,
         ...newBusData,
+        ...createdBusFromApi,
         id: createdBusFromApi?.id || createdBusFromApi?.busId || Date.now(),
         lastUpdated: createdBusFromApi?.lastUpdated || Date.now(),
       };
@@ -726,75 +907,40 @@ function Buses() {
         onClose={() => setSuccessModal({ open: false, title: '', message: '', detail: '' })}
       />
 
-      {archiveConfirmModal.open && (
-        <div className="modal-overlay confirmation-overlay" onClick={closeArchiveConfirmation}>
-          <div className="modal-content confirmation-content" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Confirm Archive</h2>
-              <button className="close-btn" onClick={closeArchiveConfirmation}>&times;</button>
-            </div>
-            <div className="modal-body">
-              <p>
-                {archiveConfirmModal.busIds.length > 1
-                  ? `Are you sure you want to archive ${archiveConfirmModal.busIds.length} buses and move them to Offline?`
-                  : 'Are you sure you want to archive this bus and move it to Offline?'}
-              </p>
-              <p className="info-note">You can restore archived buses later from the Offline tab.</p>
-              <div className="modal-actions-row">
-                <button
-                  type="button"
-                  className="table-action-btn delete"
-                  onClick={closeArchiveConfirmation}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="table-action-btn archive"
-                  onClick={confirmArchive}
-                >
-                  Confirm Archive
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmationModal
+        open={archiveConfirmModal.open}
+        title="Confirm Archive"
+        message={archiveConfirmModal.busIds.length > 1
+          ? `Are you sure you want to archive ${archiveConfirmModal.busIds.length} buses and move them to Offline?`
+          : 'Are you sure you want to archive this bus and move it to Offline?'}
+        note="You can restore archived buses later from the Offline tab."
+        confirmLabel="Confirm Archive"
+        onCancel={closeArchiveConfirmation}
+        onConfirm={confirmArchive}
+      />
 
-      {deleteConfirmModal.open && (
-        <div className="modal-overlay confirmation-overlay" onClick={closeDeleteConfirmation}>
-          <div className="modal-content confirmation-content" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Confirm Permanent Delete</h2>
-              <button className="close-btn" onClick={closeDeleteConfirmation}>&times;</button>
-            </div>
-            <div className="modal-body">
-              <p>
-                {deleteConfirmModal.busIds.length > 1
-                  ? `Delete ${deleteConfirmModal.busIds.length} archived buses permanently?`
-                  : 'Delete this archived bus permanently?'}
-              </p>
-              <p className="info-note">This action cannot be undone.</p>
-              <div className="modal-actions-row">
-                <button
-                  type="button"
-                  className="table-action-btn restore"
-                  onClick={closeDeleteConfirmation}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="table-action-btn delete"
-                  onClick={confirmDeleteArchived}
-                >
-                  Delete Permanently
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmationModal
+        open={deleteConfirmModal.open}
+        title="Confirm Permanent Delete"
+        message={deleteConfirmModal.busIds.length > 1
+          ? `Delete ${deleteConfirmModal.busIds.length} archived buses permanently?`
+          : 'Delete this archived bus permanently?'}
+        note="This action cannot be undone."
+        confirmLabel="Delete Permanently"
+        confirmVariant="danger"
+        onCancel={closeDeleteConfirmation}
+        onConfirm={confirmDeleteArchived}
+      />
+
+      <ConfirmationModal
+        open={saveConfirmModal.open}
+        title="Confirm Bus Update"
+        message="Save the changes you made to this bus?"
+        note="This will update bus details."
+        confirmLabel="Confirm Save"
+        onCancel={closeSaveConfirmation}
+        onConfirm={handleSaveBusDetails}
+      />
 
       <div className="requests-container">
         <div className="requests-header">
@@ -814,8 +960,8 @@ function Buses() {
               <input
                 type="text"
                 placeholder={isArchivedView
-                  ? 'Search offline buses by number, route, company, plate, attendant, or status...'
-                  : 'Search by bus number, route, company, plate, attendant, or status...'}
+                  ? 'Search offline buses by number, route, company, plate, or status...'
+                  : 'Search by bus number, route, company, plate, or status...'}
                 value={searchQuery}
                 onChange={handleSearchChange}
                 className="search-input"
@@ -1082,34 +1228,10 @@ function Buses() {
                     >
                       <option value="Available">Available</option>
                       <option value="Active">Active</option>
-                      <option value="In Transit">In Transit</option>
-                      <option value="Arrived">Arrived</option>
                       <option value="Offline">Offline</option>
                     </select>
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="busPhoto">Upload Bus Photo</label>
-                    <input
-                      type="file"
-                      id="busPhoto"
-                      name="busPhoto"
-                      accept="image/*"
-                      onChange={handleBusPhotoUpload}
-                    />
-                  </div>
-
-                  {newBus.busPhoto && (
-                    <div className="bus-photo-placeholder add-bus-photo-preview">
-                      <img src={newBus.busPhoto} alt="Bus preview" />
-                    </div>
-                  )}
-
-                  {newBus.busPhoto && (
-                    <button type="button" className="btn-cancel remove-photo-btn" onClick={removeBusPhoto}>
-                      Remove Photo
-                    </button>
-                  )}
                 </div>
 
                 <div className="form-section">
@@ -1117,29 +1239,46 @@ function Buses() {
 
                   <div className="form-group">
                     <label htmlFor="route">Origin *</label>
-                    <input
-                      type="text"
+                    <select
                       id="route"
                       name="route"
                       value={newBus.route}
                       onChange={handleInputChange}
-                      placeholder="e.g., One Ayala"
                       required
-                    />
+                    >
+                      <option value="">Select origin</option>
+                      {originOptions.map((origin) => (
+                        <option key={origin} value={origin}>
+                          {origin}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="form-group">
                     <label htmlFor="registeredDestination">Registered Destination *</label>
-                    <input
-                      type="text"
+                    <select
                       id="registeredDestination"
                       name="registeredDestination"
                       value={newBus.registeredDestination}
                       onChange={handleInputChange}
-                      placeholder="e.g., Bonifacio Global City, Taguig"
+                      disabled={!newBus.route}
                       required
-                    />
+                    >
+                      <option value="">{newBus.route ? 'Select destination' : 'Select origin first'}</option>
+                      {destinationOptions.map((destination) => (
+                        <option key={`${newBus.route}-${destination}`} value={destination}>
+                          {destination}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+
+                  {queueRoutesError && routeOptions.length === 0 && (
+                    <p className="info-note" style={{ color: '#b91c1c' }}>
+                      Unable to load route list from queues. Please check API connectivity.
+                    </p>
+                  )}
                 </div>
 
                 <div className="form-section">
@@ -1185,26 +1324,6 @@ function Buses() {
                   </div>
                 </div>
 
-                <div className="form-section highlight-section">
-                  <h3>Bus Attendant (Source of Truth)</h3>
-
-                  <div className="form-group">
-                    <label htmlFor="busAttendant">Assigned Bus Attendant *</label>
-                    <input
-                      type="text"
-                      id="busAttendant"
-                      name="busAttendant"
-                      value={newBus.busAttendant}
-                      onChange={handleInputChange}
-                      placeholder="e.g., Juan Dela Cruz"
-                      required
-                    />
-                  </div>
-
-                  <p className="info-note">
-                    * The bus attendant is the primary source of truth for all bus information and operations.
-                  </p>
-                </div>
               </div>
 
               <div className="form-actions">
@@ -1230,22 +1349,13 @@ function Buses() {
             </div>
 
             <div className="modal-body">
-              <div className="bus-photo-section">
-                <div className="bus-photo-placeholder">
-                  {selectedBus.busPhoto ? (
-                    <img src={selectedBus.busPhoto} alt={`Bus ${selectedBus.busNumber}`} />
-                  ) : (
-                    <div className="no-photo">
-                      <span>📷</span>
-                      <p>No photo available</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
               <div className="bus-info-grid">
                 <div className="info-section">
                   <h3>Bus Information</h3>
+                  <div className="info-row">
+                    <span className="info-label">Assigned Attendant:</span>
+                    <span className="info-value">{selectedBus.busAttendant || 'N/A'}</span>
+                  </div>
                   <div className="info-row">
                     <span className="info-label">Bus Number:</span>
                     {isEditingDetails ? (
@@ -1276,8 +1386,6 @@ function Buses() {
                       <select className="inline-edit-input" name="status" value={editingBus?.status || 'Available'} onChange={handleEditDetailsInputChange}>
                         <option value="Available">Available</option>
                         <option value="Active">Active</option>
-                        <option value="In Transit">In Transit</option>
-                        <option value="Arrived">Arrived</option>
                         <option value="Offline">Offline</option>
                       </select>
                     ) : (
@@ -1291,9 +1399,16 @@ function Buses() {
                 <div className="info-section">
                   <h3>Route Information</h3>
                   <div className="info-row">
-                    <span className="info-label">Current Route:</span>
+                    <span className="info-label">{isEditingDetails ? 'Origin:' : 'Current Route:'}</span>
                     {isEditingDetails ? (
-                      <input className="inline-edit-input" name="route" value={editingBus?.route || ''} onChange={handleEditDetailsInputChange} />
+                      <select className="inline-edit-input" name="route" value={editingBus?.route || ''} onChange={handleEditDetailsInputChange}>
+                        <option value="">Select origin</option>
+                        {originOptions.map((origin) => (
+                          <option key={`edit-origin-${origin}`} value={origin}>
+                            {origin}
+                          </option>
+                        ))}
+                      </select>
                     ) : (
                       <span className="info-value">{renderRouteWithChevron(selectedBus.route)}</span>
                     )}
@@ -1301,7 +1416,20 @@ function Buses() {
                   <div className="info-row">
                     <span className="info-label">Registered Destination:</span>
                     {isEditingDetails ? (
-                      <input className="inline-edit-input" name="registeredDestination" value={editingBus?.registeredDestination || ''} onChange={handleEditDetailsInputChange} />
+                      <select
+                        className="inline-edit-input"
+                        name="registeredDestination"
+                        value={editingBus?.registeredDestination || ''}
+                        onChange={handleEditDetailsInputChange}
+                        disabled={!editingBus?.route}
+                      >
+                        <option value="">{editingBus?.route ? 'Select destination' : 'Select origin first'}</option>
+                        {editDestinationOptions.map((destination) => (
+                          <option key={`edit-destination-${editingBus?.route}-${destination}`} value={destination}>
+                            {destination}
+                          </option>
+                        ))}
+                      </select>
                     ) : (
                       <span className="info-value">{selectedBus.registeredDestination}</span>
                     )}
@@ -1340,35 +1468,25 @@ function Buses() {
                   </div>
                 </div>
 
-                <div className="info-section highlight-section">
-                  <h3>Bus Attendant (Source of Truth)</h3>
-                  <div className="info-row">
-                    <span className="info-label">Assigned Attendant:</span>
-                    {isEditingDetails ? (
-                      <input className="inline-edit-input" name="busAttendant" value={editingBus?.busAttendant || ''} onChange={handleEditDetailsInputChange} />
-                    ) : (
-                      <span className="info-value attendant-name">{selectedBus.busAttendant}</span>
-                    )}
-                  </div>
-                  <p className="info-note">
-                    * The bus attendant is the primary source of truth for all bus information and operations.
-                  </p>
-                </div>
               </div>
 
-              <div className="modal-actions-row">
+              <div className="modal-actions-row bus-modal-actions">
                 {isEditingDetails ? (
                   <>
-                    <button type="button" className="table-action-btn restore" onClick={handleSaveBusDetails}>
+                    <button type="button" className="bus-action-btn primary" onClick={openSaveConfirmation}>
                       Save Changes
                     </button>
                     <button
                       type="button"
-                      className="table-action-btn delete"
+                      className="bus-action-btn secondary"
                       onClick={() => {
+                        closeSaveConfirmation();
                         setIsEditingDetails(false);
+                        const routeParts = parseRouteParts(selectedBus.route, selectedBus.registeredDestination);
                         setEditingBus({
                           ...selectedBus,
+                          route: routeParts.origin,
+                          registeredDestination: routeParts.destination,
                           capacity: String(selectedBus.capacity ?? ''),
                         });
                       }}
@@ -1379,7 +1497,7 @@ function Buses() {
                 ) : (
                   <button
                     type="button"
-                    className="table-action-btn restore primary-cta-btn"
+                    className="bus-action-btn primary"
                     onClick={() => setIsEditingDetails(true)}
                   >
                     Edit Details
@@ -1390,14 +1508,14 @@ function Buses() {
                   <>
                     <button
                       type="button"
-                      className="table-action-btn restore"
+                      className="bus-action-btn secondary"
                       onClick={() => handleUnarchiveBus(selectedBus.id)}
                     >
                       Unarchive
                     </button>
                     <button
                       type="button"
-                      className="table-action-btn delete"
+                      className="bus-action-btn danger"
                       onClick={() => handleDeleteArchivedBus(selectedBus.id)}
                     >
                       Delete Permanently
@@ -1406,7 +1524,7 @@ function Buses() {
                 ) : (
                   <button
                     type="button"
-                    className="table-action-btn archive"
+                    className="bus-action-btn danger"
                     onClick={() => handleArchiveBus(selectedBus.id)}
                   >
                     Archive Bus

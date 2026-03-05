@@ -1,18 +1,33 @@
+import { useState } from 'react';
 import '../styles/Header.scss';
 import qnextLogo from '../assets/qnext.svg';
-import { MdDashboard, MdAssignment, MdLogout, MdDirectionsBus } from 'react-icons/md';
+import { MdDashboard, MdLogout, MdDirectionsBus, MdPeople, MdAltRoute, MdHistory } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
+import ConfirmationModal from './ConfirmationModal';
 
 
 function Header({ setCurrentPage, currentPage }) {
-  const { logout, user } = useAuth();
+  const { logout } = useAuth();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
-  const handleLogout = () => {
+  const handleConfirmLogout = () => {
+    setShowLogoutConfirm(false);
     logout();
   };
 
   return (
     <header className="sidebar">
+      <ConfirmationModal
+        open={showLogoutConfirm}
+        title="Confirm Logout"
+        message="Are you sure you want to logout?"
+        note="You can sign back in anytime."
+        confirmLabel="Logout"
+        confirmVariant="danger"
+        onCancel={() => setShowLogoutConfirm(false)}
+        onConfirm={handleConfirmLogout}
+      />
+
       <nav>
         <div className='logo'>
           <img src={qnextLogo} alt="QNext Logo" />
@@ -24,24 +39,28 @@ function Header({ setCurrentPage, currentPage }) {
             </button>
           </li>
           <li>
-            <button className={currentPage === 'requests' ? 'active' : ''} onClick={() => setCurrentPage('requests')}>
-              <MdAssignment /> Requests
-            </button>
-          </li>
-          <li>
             <button className={currentPage === 'buses' ? 'active' : ''} onClick={() => setCurrentPage('buses')}>
               <MdDirectionsBus /> Buses
             </button>
           </li>
+          <li>
+            <button className={currentPage === 'bus-attendants' ? 'active' : ''} onClick={() => setCurrentPage('bus-attendants')}>
+              <MdPeople /> Bus Attendants
+            </button>
+          </li>
+          <li>
+            <button className={currentPage === 'routes' ? 'active' : ''} onClick={() => setCurrentPage('routes')}>
+              <MdAltRoute /> Routes
+            </button>
+          </li>
+          <li>
+            <button className={currentPage === 'activity-logs' ? 'active' : ''} onClick={() => setCurrentPage('activity-logs')}>
+              <MdHistory /> Activity Logs
+            </button>
+          </li>
         </ul>
         <div className="user-section">
-          {user && (
-            <div className="user-info">
-              <span className="user-name">{user.name}</span>
-              <span className="user-role">{user.role}</span>
-            </div>
-          )}
-          <button className="logout-btn" onClick={handleLogout}>
+          <button className="logout-btn" onClick={() => setShowLogoutConfirm(true)}>
             <MdLogout /> Logout
           </button>
         </div>

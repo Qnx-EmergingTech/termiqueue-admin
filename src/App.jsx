@@ -7,8 +7,10 @@ import Header from './components/Header';
 import SkeletonLoader from './components/SkeletonLoader';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
-const Requests = lazy(() => import('./components/Requests'));
 const Buses = lazy(() => import('./components/Buses'));
+const BusAttendants = lazy(() => import('./components/BusAttendants'));
+const RoutesManagement = lazy(() => import('./components/RoutesManagement'));
+const ActivityLogs = lazy(() => import('./components/ActivityLogs'));
 const LearningGuidePage = lazy(() => import('./components/LearningGuidePage'));
 const NotFound = lazy(() => import('./components/NotFound'));
 const Login = lazy(() => import('./components/Login'));
@@ -23,9 +25,15 @@ function AppContent() {
       const pathname = window.location.pathname;
       
       if (pathname === '/requests') {
-        setCurrentPage('requests');
+        setCurrentPage('dashboard');
       } else if (pathname === '/buses') {
         setCurrentPage('buses');
+      } else if (pathname === '/bus-attendants') {
+        setCurrentPage('bus-attendants');
+      } else if (pathname === '/routes') {
+        setCurrentPage('routes');
+      } else if (pathname === '/activity-logs') {
+        setCurrentPage('activity-logs');
       } else if (pathname === '/learning-guide') {
         setCurrentPage('learning-guide');
       } else if (pathname === '/' || pathname === '') {
@@ -45,10 +53,14 @@ function AppContent() {
   const handleNavigation = (page) => {
     setCurrentPage(page);
     // Update URL without page reload
-    if (page === 'requests') {
-      window.history.pushState({}, '', '/requests');
-    } else if (page === 'buses') {
+    if (page === 'buses') {
       window.history.pushState({}, '', '/buses');
+    } else if (page === 'bus-attendants') {
+      window.history.pushState({}, '', '/bus-attendants');
+    } else if (page === 'routes') {
+      window.history.pushState({}, '', '/routes');
+    } else if (page === 'activity-logs') {
+      window.history.pushState({}, '', '/activity-logs');
     } else if (page === 'learning-guide') {
       window.history.pushState({}, '', '/learning-guide');
     } else {
@@ -76,8 +88,10 @@ function AppContent() {
       <Header setCurrentPage={handleNavigation} currentPage={currentPage} />
       <Suspense fallback={<SkeletonLoader />}>
         {currentPage === 'dashboard' && <Dashboard />}
-        {currentPage === 'requests' && <Requests />}
         {currentPage === 'buses' && <Buses />}
+        {currentPage === 'bus-attendants' && <BusAttendants />}
+        {currentPage === 'routes' && <RoutesManagement />}
+        {currentPage === 'activity-logs' && <ActivityLogs />}
         {currentPage === 'learning-guide' && <LearningGuidePage />}
         {currentPage === 'notfound' && <NotFound />}
       </Suspense>
