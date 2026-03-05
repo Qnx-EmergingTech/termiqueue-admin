@@ -1,9 +1,9 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# This connects the Python code to your Firebase
-# Replace 'your-key-filename.json' with the actual name of the file you downloaded
+# Firebase Initialization
 try:
     cred = credentials.Certificate("serviceAccountKey.json")
     firebase_admin.initialize_app(cred)
@@ -14,6 +14,21 @@ except Exception as e:
 
 app = FastAPI()
 
+# --- ADD THIS CORS SECTION ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Allows your Vite frontend
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows GET, POST, etc.
+    allow_headers=["*"],  # Allows all headers
+)
+# ------------------------------
+
 @app.get("/")
 def home():
-    return {"message": "Your API is officially talking to Firebase!"}
+    return {"message": "Your API is officially talking to Firebase and bypassing CORS!"}
+
+# Example route to test the "profiles" error from your screenshot
+@app.get("/profiles/")
+def get_profiles():
+    return {"status": "success", "data": []}
