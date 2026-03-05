@@ -79,8 +79,6 @@
   font-size: 0.92rem;
   font-weight: 500;
 }
-
-<<<<<<< HEAD
 .dashboard-info-banner {
   border: 1px solid $faded-alt;
   background: $accent-color;
@@ -90,9 +88,6 @@
   font-size: 0.92rem;
   font-weight: 500;
 }
-
-=======
->>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 .kpi-card-skeleton {
   min-height: 110px;
   display: flex;
@@ -166,7 +161,6 @@
   }
 }
 
-<<<<<<< HEAD
 .dashboard-filters {
   display: flex;
   align-items: flex-start;
@@ -392,9 +386,6 @@
     transform: none;
   }
 }
-
-=======
->>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 .report-btn {
   height: 2.6rem;
   padding: 0 1rem;
@@ -464,11 +455,8 @@
   align-items: center;
   justify-content: center;
   color: $primary-color;
-<<<<<<< HEAD
-  background: $accent-color;
-=======
+  background: $accent-color{};
   background: color.adjust($primary-color, $lightness: 56%);
->>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
   font-size: 1.25rem;
 }
 
@@ -482,7 +470,6 @@
   }
 }
 
-<<<<<<< HEAD
 .dashboard-insights-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -586,8 +573,6 @@
   font-size: 0.9rem;
 }
 
-=======
->>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 .dashboard-panel {
   background: white;
   border: 1px solid color.adjust($faded-alt, $lightness: 18%);
@@ -700,7 +685,6 @@
   display: flex;
   justify-content: flex-end;
   gap: 0.6rem;
-<<<<<<< HEAD
 }
 
 .dashboard-report-builder {
@@ -806,6 +790,4 @@
     font-size: 0.9rem;
     font-weight: 500;
   }
-=======
->>>>>>> 005b8ca (feat: login eye toggle and dashboard updates)
 }
