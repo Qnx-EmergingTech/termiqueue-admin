@@ -5,7 +5,6 @@ from firebase_admin import credentials, firestore
 
 # Firebase Initialization
 try:
-    # This connects the Python code to your Firebase using your key file
     cred = credentials.Certificate("serviceAccountKey.json")
     firebase_admin.initialize_app(cred)
     db = firestore.client()
@@ -15,22 +14,32 @@ except Exception as e:
 
 app = FastAPI()
 
-# --- UPDATED: ALLOW FRONTEND ORIGIN ---
-# This block fixes the "blocked by CORS policy" error
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Trust your Vite frontend
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-# ---------------------------------------
 
 @app.get("/")
 def home():
-    return {"message": "Your API is officially talking to Firebase and bypassing CORS!"}
+    return {"message": "API is Active"}
 
-# Example route to verify the "profiles" connection
+# --- ADD THESE ROUTES TO FIX THE 404 ERRORS ---
+
+@app.get("/profiles/me/trips/all")
+def get_all_trips():
+    return [] # Returns empty list instead of 404
+
+@app.get("/buses/")
+def get_buses():
+    return [] # Returns empty list instead of 404
+
+@app.get("/queue/")
+def get_queue():
+    return [] # Returns empty list instead of 404
+
 @app.get("/profiles/")
 def get_profiles():
-    return {"status": "success", "data": []}
+    return [] # Returns empty list instead of 404
