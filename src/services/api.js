@@ -128,6 +128,14 @@ const normalizeFirebaseAttendant = (item, fallbackId) => {
   const firstName = String(item?.first_name || item?.firstName || '').trim();
   const lastName = String(item?.last_name || item?.lastName || '').trim();
   const fullName = String(item?.full_name || item?.fullName || item?.name || `${firstName} ${lastName}`.trim()).trim();
+  const resolvedUpdatedAt =
+    item?.updated_at ||
+    item?.updatedAt ||
+    item?.last_updated ||
+    item?.lastUpdated ||
+    item?.created_at ||
+    item?.createdAt ||
+    0;
 
   return {
     ...item,
@@ -142,7 +150,7 @@ const normalizeFirebaseAttendant = (item, fallbackId) => {
     user_type: String(item?.user_type || item?.userType || item?.role || item?.user_role || '').trim(),
     assignedBusId: String(item?.assignedBusId || item?.assigned_bus_id || item?.busId || item?.bus_id || '').trim(),
     is_archived: Boolean(item?.is_archived),
-    updatedAt: item?.updated_at || item?.updatedAt || item?.created_at || item?.createdAt || Date.now(),
+    updatedAt: resolvedUpdatedAt,
   };
 };
 
@@ -769,6 +777,23 @@ export const createQueueDestination = async (payload) => {
     return created;
   }
 
+  const normalizedBusId = String(payload?.bus_id || payload?.busId || '').trim();
+
+  if (normalizedBusId) {
+    const departResponse = await requestWithFallback({
+      method: 'post',
+      endpoints: BUS_ENDPOINTS.map((endpoint) => `${endpoint}/${encodeURIComponent(normalizedBusId)}/depart`),
+      data: payload,
+    });
+
+    const departed = extractObject(departResponse.data) || payload;
+    return {
+      ...departed,
+      id: String(departed?.id || departed?.queue_id || departed?.destination_id || `queue-${Date.now()}`),
+      destinationName: String(departed?.destinationName || departed?.destination || payload?.destinationName || payload?.destination || '').trim(),
+    };
+  }
+
   const response = await requestWithFallback({
     method: 'post',
     endpoints: ['/queues/', '/queues'],
@@ -790,7 +815,7 @@ export const fetchRouteGeofences = async () => {
 
   const response = await requestWithFallback({
     method: 'get',
-    endpoints: ['/route-geofences/', '/route-geofences', '/routes/geofences', '/routes/geofences/'],
+    endpoints: ['/geofence', '/geofence/', '/route-geofences/', '/route-geofences', '/routes/geofences', '/routes/geofences/'],
   });
 
   return extractArray(response.data).map((routeItem, index) => ({
@@ -816,7 +841,7 @@ export const createRouteGeofence = async (payload) => {
 
   const response = await requestWithFallback({
     method: 'post',
-    endpoints: ['/route-geofences/', '/route-geofences', '/routes/geofences', '/routes/geofences/'],
+    endpoints: ['/geofence', '/geofence/', '/route-geofences/', '/route-geofences', '/routes/geofences', '/routes/geofences/'],
     data: payload,
   });
 
@@ -849,7 +874,7 @@ export const updateRouteGeofence = async (id, payload) => {
   const routeId = encodeURIComponent(String(id));
   const response = await requestWithFallback({
     method: 'put',
-    endpoints: [`/route-geofences/${routeId}`, `/routes/geofences/${routeId}`],
+    endpoints: [`/geofence/${routeId}`, `/route-geofences/${routeId}`, `/routes/geofences/${routeId}`],
     data: payload,
   });
 
@@ -873,7 +898,7 @@ export const deleteRouteGeofence = async (id) => {
   const routeId = encodeURIComponent(String(id));
   const response = await requestWithFallback({
     method: 'delete',
-    endpoints: [`/route-geofences/${routeId}`, `/routes/geofences/${routeId}`],
+    endpoints: [`/geofence/${routeId}`, `/route-geofences/${routeId}`, `/routes/geofences/${routeId}`],
   });
 
   return response.data;
@@ -896,10 +921,66 @@ export const fetchOriginGeofenceConfig = async () => {
 
   const response = await requestWithFallback({
     method: 'get',
-    endpoints: ['/route-geofences/origin-config', '/routes/origin-geofence', '/origin-geofence'],
+    endpoints: ['/geofence', '/geofence/', '/route-geofences/origin-config', '/routes/origin-geofence', '/origin-geofence'],
   });
 
   return extractObject(response.data);
+};
+
+export const saveOriginGeofenceConfig = async (payload = {}) => {
+  const normalizedPayload = {
+    label: String(payload?.label || 'Pinned Origin').trim() || 'Pinned Origin',
+    latitude: Number(payload?.latitude),
+    longitude: Number(payload?.longitude),
+    radius: Number(payload?.radius),
+    updatedAt: Date.now(),
+  };
+
+  if (!API_URL) {
+    writeLocalJson(LOCAL_ORIGIN_KEY, normalizedPayload);
+    return normalizedPayload;
+  }
+
+  try {
+    const response = await requestWithFallback({
+      method: 'put',
+      endpoints: ['/geofence', '/geofence/', '/route-geofences/origin-config', '/routes/origin-geofence', '/origin-geofence'],
+      data: normalizedPayload,
+    });
+
+    const saved = extractObject(response.data) || normalizedPayload;
+    return {
+      ...normalizedPayload,
+      ...saved,
+      label: String(saved?.label || normalizedPayload.label).trim() || normalizedPayload.label,
+      latitude: Number(saved?.latitude ?? normalizedPayload.latitude),
+      longitude: Number(saved?.longitude ?? normalizedPayload.longitude),
+      radius: Number(saved?.radius ?? normalizedPayload.radius),
+      updatedAt: Number(saved?.updatedAt || saved?.updated_at || Date.now()),
+    };
+  } catch (error) {
+    const status = Number(error?.response?.status || 0);
+    if (status !== 404 && status !== 405) {
+      throw error;
+    }
+
+    const response = await requestWithFallback({
+      method: 'post',
+      endpoints: ['/geofence', '/geofence/', '/route-geofences/origin-config', '/routes/origin-geofence', '/origin-geofence'],
+      data: normalizedPayload,
+    });
+
+    const saved = extractObject(response.data) || normalizedPayload;
+    return {
+      ...normalizedPayload,
+      ...saved,
+      label: String(saved?.label || normalizedPayload.label).trim() || normalizedPayload.label,
+      latitude: Number(saved?.latitude ?? normalizedPayload.latitude),
+      longitude: Number(saved?.longitude ?? normalizedPayload.longitude),
+      radius: Number(saved?.radius ?? normalizedPayload.radius),
+      updatedAt: Number(saved?.updatedAt || saved?.updated_at || Date.now()),
+    };
+  }
 };
 
 export const fetchBusAttendants = async () => {

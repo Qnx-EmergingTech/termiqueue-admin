@@ -9,6 +9,7 @@ import '../styles/Body.scss';
 import '../styles/Requests.scss';
 import TableSkeletonRows from './TableSkeletonRows';
 import ConfirmationModal from './ConfirmationModal';
+import SuccessModal from './SuccessModal';
 import {
   createQueueDestination,
   createRouteGeofence,
@@ -17,6 +18,7 @@ import {
   fetchOriginGeofenceConfig,
   fetchQueueDestinations,
   fetchRouteGeofences,
+  saveOriginGeofenceConfig,
   updateRouteGeofence,
 } from '../services/api';
 
@@ -110,10 +112,19 @@ function RoutesManagement() {
     routeId: '',
     sourceType: 'geofence',
   });
+  const [saveConfirmModal, setSaveConfirmModal] = useState({
+    open: false,
+  });
+  const [successModal, setSuccessModal] = useState({
+    open: false,
+    title: '',
+    message: '',
+    detail: '',
+    autoCloseMs: 5000,
+  });
   const [routeForm, setRouteForm] = useState({
     id: '',
     sourceType: 'geofence',
-    useGlobalOrigin: true,
     latitude: '',
     longitude: '',
     radius: '',
@@ -198,19 +209,6 @@ function RoutesManagement() {
     }
 
     return (Array.isArray(routeItems) ? routeItems : []).map((routeItem) => {
-      const hasOwnGeofence =
-        Number.isFinite(Number(routeItem?.latitude)) &&
-        Number.isFinite(Number(routeItem?.longitude)) &&
-        Number(routeItem?.radius) > 0;
-
-      if (hasOwnGeofence && routeItem?.sourceType !== 'queue-only') {
-        return {
-          ...routeItem,
-          originLabel: routeItem.originLabel || originConfig.label || 'Pinned Origin',
-          originSource: routeItem.originSource || 'custom',
-        };
-      }
-
       return {
         ...routeItem,
         originLabel: originConfig.label || routeItem.originLabel || 'Pinned Origin',
@@ -447,7 +445,6 @@ function RoutesManagement() {
     setRouteForm({
       id: '',
       sourceType: 'geofence',
-      useGlobalOrigin: Boolean(globalOrigin),
       latitude: globalOrigin ? String(globalOrigin.latitude) : '',
       longitude: globalOrigin ? String(globalOrigin.longitude) : '',
       radius: globalOrigin ? String(globalOrigin.radius) : '',
@@ -483,10 +480,9 @@ function RoutesManagement() {
     setRouteForm({
       id: String(routeItem.id || ''),
       sourceType: String(routeItem.sourceType || 'geofence'),
-      useGlobalOrigin: useGlobalOriginByDefault,
-      latitude: useGlobalOriginByDefault ? String(globalOrigin.latitude) : String(routeItem.latitude ?? ''),
-      longitude: useGlobalOriginByDefault ? String(globalOrigin.longitude) : String(routeItem.longitude ?? ''),
-      radius: useGlobalOriginByDefault ? String(globalOrigin.radius) : String(routeItem.radius ?? ''),
+      latitude: globalOrigin ? String(globalOrigin.latitude) : String(routeItem.latitude ?? ''),
+      longitude: globalOrigin ? String(globalOrigin.longitude) : String(routeItem.longitude ?? ''),
+      radius: globalOrigin ? String(globalOrigin.radius) : String(routeItem.radius ?? ''),
       destinationMode: queueId ? 'existing' : 'new',
       queueId,
       destinationName,
@@ -502,16 +498,6 @@ function RoutesManagement() {
     }
 
     setShowModal(false);
-  };
-
-  const handleOriginModeChange = (shouldUseGlobal) => {
-    setRouteForm((prevForm) => ({
-      ...prevForm,
-      useGlobalOrigin: shouldUseGlobal,
-      latitude: shouldUseGlobal && globalOrigin ? String(globalOrigin.latitude) : prevForm.latitude,
-      longitude: shouldUseGlobal && globalOrigin ? String(globalOrigin.longitude) : prevForm.longitude,
-      radius: shouldUseGlobal && globalOrigin ? String(globalOrigin.radius) : prevForm.radius,
-    }));
   };
 
   const handleFormChange = (event) => {
@@ -544,20 +530,10 @@ function RoutesManagement() {
     });
   };
 
-  const handleSaveRoute = async (event) => {
-    event.preventDefault();
-
-    const hasGlobalOrigin = Boolean(
-      Number.isFinite(Number(globalOrigin?.latitude)) &&
-      Number.isFinite(Number(globalOrigin?.longitude)) &&
-      Number.isFinite(Number(globalOrigin?.radius)) &&
-      Number(globalOrigin?.radius) > 0
-    );
-
-    const shouldUseGlobalOrigin = hasGlobalOrigin && Boolean(routeForm.useGlobalOrigin);
-    const latitude = shouldUseGlobalOrigin ? Number(globalOrigin.latitude) : Number(routeForm.latitude);
-    const longitude = shouldUseGlobalOrigin ? Number(globalOrigin.longitude) : Number(routeForm.longitude);
-    const radius = shouldUseGlobalOrigin ? Number(globalOrigin.radius) : Number(routeForm.radius);
+  const validateRouteForm = () => {
+    const latitude = Number(routeForm.latitude);
+    const longitude = Number(routeForm.longitude);
+    const radius = Number(routeForm.radius);
 
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       setError('Latitude and longitude must be valid numbers.');
@@ -576,13 +552,70 @@ function RoutesManagement() {
 
     if (routeForm.destinationMode === 'new' && !routeForm.newDestinationName.trim()) {
       setError('Please enter a destination name.');
+      return null;
+    }
+
+    return { latitude, longitude, radius };
+  };
+
+  const handleSaveRoute = (event) => {
+    event.preventDefault();
+    const parsedValues = validateRouteForm();
+    if (!parsedValues) {
       return;
     }
+
+    setSaveConfirmModal({ open: true });
+  };
+
+  const closeSaveConfirmation = () => {
+    if (saving) {
+      return;
+    }
+
+    setSaveConfirmModal({ open: false });
+  };
+
+  const confirmSaveRoute = async () => {
+    const parsedValues = validateRouteForm();
+    if (!parsedValues) {
+      return;
+    }
+
+    const { latitude, longitude, radius } = parsedValues;
+
+    closeSaveConfirmation();
 
     setSaving(true);
     setError('');
 
     try {
+      const originPayload = {
+        label: String(globalOrigin?.label || 'Pinned Origin').trim() || 'Pinned Origin',
+        latitude,
+        longitude,
+        radius,
+      };
+
+      let resolvedOriginConfig = originPayload;
+
+      try {
+        resolvedOriginConfig = await saveOriginGeofenceConfig(originPayload);
+      } catch (originError) {
+        if (!isNetworkError(originError)) {
+          throw originError;
+        }
+
+        resolvedOriginConfig = {
+          ...originPayload,
+          updatedAt: Date.now(),
+        };
+        writeLocalJson('routesManagement.globalOrigin', resolvedOriginConfig);
+        setError('Origin config API unavailable. Saved origin locally.');
+      }
+
+      setGlobalOrigin(resolvedOriginConfig);
+
       let queueId = String(routeForm.queueId || '').trim();
       let destinationName = String(routeForm.destinationName || '').trim();
 
@@ -625,10 +658,7 @@ function RoutesManagement() {
         queueId,
         destinationName,
       };
-
-      const resolvedOriginLabel = shouldUseGlobalOrigin
-        ? (globalOrigin?.label || 'Pinned Origin')
-        : (routeForm.originLabel || globalOrigin?.label || 'Custom Origin');
+      const resolvedOriginLabel = resolvedOriginConfig?.label || 'Pinned Origin';
 
       if (isEditing) {
         let updatedRoute;
@@ -644,7 +674,7 @@ function RoutesManagement() {
             updatedRoute = {
               id: `local-route-${Date.now()}`,
               sourceType: 'geofence',
-              originSource: shouldUseGlobalOrigin ? 'global-config' : 'custom',
+              originSource: 'global-config',
               originLabel: resolvedOriginLabel,
               latitude,
               longitude,
@@ -671,7 +701,7 @@ function RoutesManagement() {
             updatedRoute = {
               id: routeForm.id,
               sourceType: 'geofence',
-              originSource: shouldUseGlobalOrigin ? 'global-config' : 'custom',
+              originSource: 'global-config',
               originLabel: resolvedOriginLabel,
               latitude,
               longitude,
@@ -702,7 +732,7 @@ function RoutesManagement() {
           createdRoute = {
             id: `local-route-${Date.now()}`,
             sourceType: 'geofence',
-            originSource: shouldUseGlobalOrigin ? 'global-config' : 'custom',
+            originSource: 'global-config',
             originLabel: resolvedOriginLabel,
             latitude,
             longitude,
@@ -717,9 +747,21 @@ function RoutesManagement() {
         setRoutes((prevRoutes) => [createdRoute, ...prevRoutes]);
       }
 
+      setRoutes((prevRoutes) => applyGlobalOriginToRoutes(prevRoutes, resolvedOriginConfig));
+
       if (routeForm.destinationMode === 'new') {
         await loadData();
       }
+
+      setSuccessModal({
+        open: true,
+        title: isEditing ? 'Route Updated' : 'Route Created',
+        message: isEditing
+          ? 'Route details were updated successfully.'
+          : 'Route was created successfully.',
+        detail: '',
+        autoCloseMs: 5000,
+      });
 
       closeModal();
     } catch (err) {
@@ -778,6 +820,14 @@ function RoutesManagement() {
       if (selectedRoute && String(selectedRoute.id) === String(routeId)) {
         closeDetailsModal();
       }
+
+      setSuccessModal({
+        open: true,
+        title: 'Route Deleted',
+        message: 'Route was deleted successfully.',
+        detail: '',
+        autoCloseMs: 5000,
+      });
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to delete route.'));
     }
@@ -804,6 +854,32 @@ function RoutesManagement() {
 
   return (
     <main className="content">
+      <SuccessModal
+        open={successModal.open}
+        title={successModal.title}
+        message={successModal.message}
+        detail={successModal.detail}
+        autoCloseMs={successModal.autoCloseMs}
+        onClose={() => setSuccessModal({ open: false, title: '', message: '', detail: '', autoCloseMs: 5000 })}
+      />
+
+      <ConfirmationModal
+        open={saveConfirmModal.open}
+        title={isEditing ? 'Confirm Route Update' : 'Confirm Route Creation'}
+        message={isEditing
+          ? 'Save changes to this route?'
+          : 'Create this route?'}
+        note={isEditing
+          ? 'This will update route geofence and destination settings.'
+          : 'This will create a new route geofence record.'}
+        confirmLabel={saving ? 'Saving...' : (isEditing ? 'Save Route' : 'Create Route')}
+        confirmDisabled={saving}
+        cancelDisabled={saving}
+        closeDisabled={saving}
+        onCancel={closeSaveConfirmation}
+        onConfirm={confirmSaveRoute}
+      />
+
       <ConfirmationModal
         open={deleteConfirmModal.open}
         title="Confirm Route Delete"
@@ -1036,10 +1112,10 @@ function RoutesManagement() {
                 </div>
               </div>
 
-              <div className="modal-actions-row">
+              <div className="modal-actions-row bus-modal-actions">
                 <button
                   type="button"
-                  className="table-action-btn restore primary-cta-btn"
+                  className="bus-action-btn primary"
                   onClick={() => {
                     const routeToEdit = selectedRoute;
                     closeDetailsModal();
@@ -1050,7 +1126,7 @@ function RoutesManagement() {
                 </button>
                 <button
                   type="button"
-                  className="table-action-btn delete"
+                  className="bus-action-btn danger"
                   onClick={() => requestDeleteRoute(selectedRoute.id, selectedRoute.sourceType)}
                 >
                   Delete Route
@@ -1072,45 +1148,21 @@ function RoutesManagement() {
             <form onSubmit={handleSaveRoute} className="modal-body">
               <div className="form-grid">
                 <div className="form-section">
-                  <h3>Origin (Geofence)</h3>
-
-                  {globalOrigin && (
-                    <div className="form-group origin-mode-control">
-                      <label>Origin Mode</label>
-                      <div className="view-toggle-group">
-                        <button
-                          type="button"
-                          className={`view-toggle-btn ${routeForm.useGlobalOrigin ? 'active' : ''}`}
-                          onClick={() => handleOriginModeChange(true)}
-                        >
-                          Use Global Origin
-                        </button>
-                        <button
-                          type="button"
-                          className={`view-toggle-btn ${!routeForm.useGlobalOrigin ? 'active' : ''}`}
-                          onClick={() => handleOriginModeChange(false)}
-                        >
-                          Custom Origin
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  <h3>Origin (Shared Geofence)</h3>
 
                   <div className="origin-map-top">
                     <OriginMapPreview
                       latitude={routeForm.latitude}
                       longitude={routeForm.longitude}
                       radius={routeForm.radius}
-                      label={routeForm.useGlobalOrigin ? (globalOrigin?.label || 'Origin') : 'Custom Origin'}
+                      label={globalOrigin?.label || 'Origin'}
                       compact
                     />
                   </div>
 
-                  {globalOrigin && Boolean(routeForm.useGlobalOrigin) && (
-                    <p style={{ margin: 0, color: '#6b7280', fontSize: '0.9rem' }}>
-                      Origin is currently locked to config geofence.
-                    </p>
-                  )}
+                  <p style={{ margin: 0, color: '#6b7280', fontSize: '0.9rem' }}>
+                    Updating these values will update the shared origin for all routes.
+                  </p>
 
                   <div className="origin-coordinates-row">
                     <div className="form-group">
@@ -1123,7 +1175,6 @@ function RoutesManagement() {
                         value={routeForm.latitude}
                         onChange={handleFormChange}
                         placeholder="e.g., 14.5995"
-                        disabled={Boolean(globalOrigin) && Boolean(routeForm.useGlobalOrigin)}
                         required
                       />
                     </div>
@@ -1138,7 +1189,6 @@ function RoutesManagement() {
                         value={routeForm.longitude}
                         onChange={handleFormChange}
                         placeholder="e.g., 120.9842"
-                        disabled={Boolean(globalOrigin) && Boolean(routeForm.useGlobalOrigin)}
                         required
                       />
                     </div>
@@ -1155,7 +1205,6 @@ function RoutesManagement() {
                       value={routeForm.radius}
                       onChange={handleFormChange}
                       placeholder="e.g., 150"
-                      disabled={Boolean(globalOrigin) && Boolean(routeForm.useGlobalOrigin)}
                       required
                     />
                   </div>

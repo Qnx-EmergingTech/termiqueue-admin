@@ -86,6 +86,28 @@ This command runs both the SCSS watcher and Vite dev server concurrently. The ap
 
 The page will automatically reload when you make changes.
 
+### 5. Post-pull / post-merge safety check (recommended)
+
+After every fresh clone, pull, or merge:
+
+```bash
+npm install
+npm run build
+```
+
+If the app shows a blank page after updates, do this once in browser DevTools:
+
+```javascript
+localStorage.removeItem('qnext_admin_buses');
+localStorage.removeItem('qnext_admin_attendants');
+localStorage.removeItem('routesManagement.localRoutes');
+localStorage.removeItem('routesManagement.localDestinations');
+localStorage.removeItem('routesManagement.globalOrigin');
+location.reload();
+```
+
+The app now includes startup preflight checks and an error boundary to show actionable messages instead of a silent white screen.
+
 ## Authentication
 
 This application now uses **Firebase Authentication + Firestore admin checks**:
@@ -248,6 +270,19 @@ VITE_API_URL=
 ```
 
 Using `VITE_AUTH_PROVIDER=api` without a live backend auth server will block login.
+
+### Startup Configuration Error screen appears
+
+This is expected when required startup env values are missing or invalid.
+
+Fixes:
+
+1. Copy `.env.example` to `.env`
+2. Use `VITE_AUTH_PROVIDER=firebase` for default setup
+3. If using API mode, set `VITE_API_URL`
+4. Restart dev server
+
+The screen prevents a silent white screen by showing exact setup issues.
 
 ## Contributing
 

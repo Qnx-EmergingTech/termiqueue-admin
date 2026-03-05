@@ -5,6 +5,8 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Header from './components/Header';
 import SkeletonLoader from './components/SkeletonLoader';
+import StartupPreflight from './components/StartupPreflight';
+import { getStartupPreflightReport } from './utils/startupPreflight';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const Buses = lazy(() => import('./components/Buses'));
@@ -100,6 +102,12 @@ function AppContent() {
 }
 
 function App() {
+  const preflightReport = getStartupPreflightReport();
+
+  if (!preflightReport.ok) {
+    return <StartupPreflight report={preflightReport} />;
+  }
+
   return (
     <AuthProvider>
       <AppContent />

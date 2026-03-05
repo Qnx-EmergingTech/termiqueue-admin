@@ -1168,21 +1168,22 @@ function Buses() {
         <div className="modal-overlay" onClick={closeAddModal}>
           <div className="modal-content add-bus-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Add New Bus</h2>
+              <h2>Bus Details</h2>
               <button className="close-btn" onClick={closeAddModal}>&times;</button>
             </div>
 
             <form onSubmit={handleSubmit} className="modal-body">
-              <div className="form-grid">
-                <div className="form-section">
+              <div className="bus-info-grid">
+                <div className="info-section">
                   <h3>Bus Information</h3>
 
-                  <div className="form-group">
-                    <label htmlFor="busNumber">Bus Number *</label>
+                  <div className="info-row">
+                    <span className="info-label">Bus Number:</span>
                     <input
                       type="text"
                       id="busNumber"
                       name="busNumber"
+                      className="inline-edit-input"
                       value={newBus.busNumber}
                       onChange={handleInputChange}
                       placeholder="e.g., OA-116"
@@ -1190,12 +1191,13 @@ function Buses() {
                     />
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="plateNumber">Plate Number *</label>
+                  <div className="info-row">
+                    <span className="info-label">Plate Number:</span>
                     <input
                       type="text"
                       id="plateNumber"
                       name="plateNumber"
+                      className="inline-edit-input"
                       value={newBus.plateNumber}
                       onChange={handleInputChange}
                       placeholder="e.g., ABC-123"
@@ -1203,12 +1205,13 @@ function Buses() {
                     />
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="capacity">Capacity *</label>
+                  <div className="info-row">
+                    <span className="info-label">Capacity:</span>
                     <input
                       type="number"
                       id="capacity"
                       name="capacity"
+                      className="inline-edit-input"
                       value={newBus.capacity}
                       onChange={handleInputChange}
                       placeholder="e.g., 45"
@@ -1217,11 +1220,12 @@ function Buses() {
                     />
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="status">Status *</label>
+                  <div className="info-row">
+                    <span className="info-label">Status:</span>
                     <select
                       id="status"
                       name="status"
+                      className="inline-edit-input"
                       value={newBus.status}
                       onChange={handleInputChange}
                       required
@@ -1231,17 +1235,17 @@ function Buses() {
                       <option value="Offline">Offline</option>
                     </select>
                   </div>
-
                 </div>
 
-                <div className="form-section">
+                <div className="info-section">
                   <h3>Route Information</h3>
 
-                  <div className="form-group">
-                    <label htmlFor="route">Origin *</label>
+                  <div className="info-row">
+                    <span className="info-label">Origin:</span>
                     <select
                       id="route"
                       name="route"
+                      className="inline-edit-input"
                       value={newBus.route}
                       onChange={handleInputChange}
                       required
@@ -1255,11 +1259,12 @@ function Buses() {
                     </select>
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="registeredDestination">Registered Destination *</label>
+                  <div className="info-row">
+                    <span className="info-label">Registered Destination:</span>
                     <select
                       id="registeredDestination"
                       name="registeredDestination"
+                      className="inline-edit-input"
                       value={newBus.registeredDestination}
                       onChange={handleInputChange}
                       disabled={!newBus.route}
@@ -1281,15 +1286,16 @@ function Buses() {
                   )}
                 </div>
 
-                <div className="form-section">
+                <div className="info-section">
                   <h3>Bus Company</h3>
 
-                  <div className="form-group">
-                    <label htmlFor="busCompany">Company Name *</label>
+                  <div className="info-row">
+                    <span className="info-label">Company Name:</span>
                     <input
                       type="text"
                       id="busCompany"
                       name="busCompany"
+                      className="inline-edit-input"
                       value={newBus.busCompany}
                       onChange={handleInputChange}
                       placeholder="e.g., JAM Transit"
@@ -1297,12 +1303,13 @@ function Buses() {
                     />
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="busCompanyEmail">Company Email *</label>
+                  <div className="info-row">
+                    <span className="info-label">Email:</span>
                     <input
                       type="email"
                       id="busCompanyEmail"
                       name="busCompanyEmail"
+                      className="inline-edit-input"
                       value={newBus.busCompanyEmail}
                       onChange={handleInputChange}
                       placeholder="e.g., operations@company.com.ph"
@@ -1310,12 +1317,13 @@ function Buses() {
                     />
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="busCompanyContact">Company Contact *</label>
+                  <div className="info-row">
+                    <span className="info-label">Contact Number:</span>
                     <input
                       type="tel"
                       id="busCompanyContact"
                       name="busCompanyContact"
+                      className="inline-edit-input"
                       value={newBus.busCompanyContact}
                       onChange={handleInputChange}
                       placeholder="e.g., +63 917 123 4567"
@@ -1323,15 +1331,14 @@ function Buses() {
                     />
                   </div>
                 </div>
-
               </div>
 
-              <div className="form-actions">
-                <button type="button" className="btn-cancel" onClick={closeAddModal}>
+              <div className="modal-actions-row bus-modal-actions">
+                <button type="button" className="bus-action-btn secondary" onClick={closeAddModal} disabled={loading}>
                   Cancel
                 </button>
-                <button type="submit" className="btn-submit">
-                  Add Bus
+                <button type="submit" className="bus-action-btn primary" disabled={loading}>
+                  {loading ? 'Adding...' : 'Add Bus'}
                 </button>
               </div>
             </form>

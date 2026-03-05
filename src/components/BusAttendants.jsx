@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import '../styles/Body.scss';
 import '../styles/Requests.scss';
 import TableSkeletonRows from './TableSkeletonRows';
@@ -6,7 +8,6 @@ import SuccessModal from './SuccessModal';
 import ConfirmationModal from './ConfirmationModal';
 import {
   archiveBusAttendant,
-  claimBus,
   createBusAttendant,
   fetchAttendantMyBusAssignments,
   fetchBusAttendants,
@@ -27,7 +28,6 @@ const EMPTY_FORM = {
   last_name: '',
   email: '',
   birthdate: '',
-  assignedBusId: '',
 };
 
 function BusAttendants() {
@@ -103,6 +103,56 @@ function BusAttendants() {
 
     return 0;
   };
+
+  const formatDateInputValue = (dateValue) => {
+    if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
+      return '';
+    }
+
+    const year = dateValue.getFullYear();
+    const month = String(dateValue.getMonth() + 1).padStart(2, '0');
+    const day = String(dateValue.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const parseDateInputValue = (value) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) {
+      return null;
+    }
+
+    const parsedDate = new Date(`${normalized}T00:00:00`);
+    if (Number.isNaN(parsedDate.getTime())) {
+      return null;
+    }
+
+    return parsedDate;
+  };
+
+  const stripDatePickerTitles = () => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const removeTitles = () => {
+      const nodes = document.querySelectorAll(
+        '.react-datepicker__day[title], .react-datepicker__day-name[title], .react-datepicker__current-month[title]'
+      );
+
+      nodes.forEach((node) => {
+        node.removeAttribute('title');
+      });
+    };
+
+    window.requestAnimationFrame(removeTitles);
+  };
+
+  const latestEligibleBirthdate = useMemo(() => {
+    const latest = new Date();
+    latest.setFullYear(latest.getFullYear() - 18);
+    latest.setHours(23, 59, 59, 999);
+    return latest;
+  }, []);
 
   const formatAccountCreated = (attendant) => {
     const timestamp = normalizeTimestamp(
@@ -695,7 +745,6 @@ function BusAttendants() {
       last_name: addForm.last_name,
       email: addForm.email,
       birthdate: addForm.birthdate,
-      assignedBusId: addForm.assignedBusId,
       username: generatedUsername,
       username_lower: generatedUsername.toLowerCase(),
       password: generatedPassword,
@@ -731,22 +780,6 @@ function BusAttendants() {
 
     try {
       const createdAttendant = await createBusAttendant(payload);
-
-      if (payload.assignedBusId) {
-        try {
-          await claimBus(payload.assignedBusId, {
-            profile_id: createdAttendant?.id,
-            user_id: createdAttendant?.id,
-            attendant_id: createdAttendant?.id,
-            username: payload.username,
-            email: payload.email,
-            attendant_name: `${payload.first_name} ${payload.last_name}`.trim(),
-          });
-        } catch (claimError) {
-          console.warn('Failed to claim bus for new attendant:', claimError);
-          setError((previous) => previous || 'Attendant created, but bus assignment claim failed.');
-        }
-      }
 
       const authProvisionResult = await provisionBusAttendantAuthUser({
         email: payload.email,
@@ -859,7 +892,6 @@ function BusAttendants() {
       first_name: attendant.first_name || '',
       last_name: attendant.last_name || '',
       email: attendant.email || '',
-      assignedBusId: attendant.assignedBusId || '',
     });
     setIsEditingDetails(false);
     setShowDetailsModal(true);
@@ -917,30 +949,11 @@ function BusAttendants() {
     setError('');
 
     try {
-      const assignmentChanged = String(editForm.assignedBusId || '').trim() !== String(selectedAttendant.assignedBusId || '').trim();
-
       const updatedAttendant = await updateBusAttendant(selectedAttendant.id, {
         first_name: editForm.first_name,
         last_name: editForm.last_name,
         email: editForm.email,
-        assignedBusId: editForm.assignedBusId,
       });
-
-      if (assignmentChanged && editForm.assignedBusId) {
-        try {
-          await claimBus(editForm.assignedBusId, {
-            profile_id: selectedAttendant.id,
-            user_id: selectedAttendant.id,
-            attendant_id: selectedAttendant.id,
-            username: updatedAttendant?.username || selectedAttendant?.username,
-            email: editForm.email || selectedAttendant?.email,
-            attendant_name: `${editForm.first_name} ${editForm.last_name}`.trim(),
-          });
-        } catch (claimError) {
-          console.warn('Failed to claim bus on attendant update:', claimError);
-          setError((previous) => previous || 'Details saved, but bus assignment claim failed.');
-        }
-      }
 
       const syncStatus = await syncAttendantProfile(updatedAttendant);
 
@@ -1026,11 +1039,6 @@ function BusAttendants() {
       setError(getRequestErrorMessage(err, shouldArchive ? 'Failed to archive bus attendant.' : 'Failed to restore bus attendant.'));
     }
   };
-
-  const visibleBusOptions = useMemo(
-    () => buses.filter((bus) => String(bus.status || '').toLowerCase() !== 'offline'),
-    [buses]
-  );
 
   return (
     <main className="content">
@@ -1254,103 +1262,113 @@ function BusAttendants() {
         <div className="modal-overlay" onClick={closeAddModal}>
           <div className="modal-content add-bus-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>Add Bus Attendant</h2>
+              <h2>Bus Attendant Details</h2>
               <button className="close-btn" onClick={closeAddModal}>&times;</button>
             </div>
 
             <form className="modal-body" onSubmit={handleAddAttendant}>
-              <div className="form-grid">
-                <div className="form-section">
-                  <h3>Attendant Details</h3>
+              <div className="bus-info-grid">
+                <div className="info-section">
+                  <h3>Profile</h3>
 
-                  <div className="form-group">
-                    <label htmlFor="first_name">First Name *</label>
+                  <div className="info-row">
+                    <span className="info-label">First Name:</span>
                     <input
                       id="first_name"
                       name="first_name"
                       type="text"
+                      className="inline-edit-input"
                       value={addForm.first_name}
                       onChange={handleAddInputChange}
                       required
                     />
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="middle_name">Middle Name</label>
+                  <div className="info-row">
+                    <span className="info-label">Middle Name:</span>
                     <input
                       id="middle_name"
                       name="middle_name"
                       type="text"
+                      className="inline-edit-input"
                       value={addForm.middle_name}
                       onChange={handleAddInputChange}
                       placeholder="Optional"
                     />
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="last_name">Last Name *</label>
+                  <div className="info-row">
+                    <span className="info-label">Last Name:</span>
                     <input
                       id="last_name"
                       name="last_name"
                       type="text"
+                      className="inline-edit-input"
                       value={addForm.last_name}
                       onChange={handleAddInputChange}
                       required
                     />
                   </div>
+                </div>
 
-                  <div className="form-group">
-                    <label htmlFor="email">Email *</label>
+                <div className="info-section">
+                  <h3>Assignment</h3>
+
+                  <div className="info-row">
+                    <span className="info-label">Email:</span>
                     <input
                       id="email"
                       name="email"
                       type="email"
+                      className="inline-edit-input"
                       value={addForm.email}
                       onChange={handleAddInputChange}
                       required
                     />
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="birthdate">Birthdate *</label>
-                    <input
+                  <div className="info-row">
+                    <span className="info-label">Birthdate:</span>
+                    <DatePicker
                       id="birthdate"
-                      name="birthdate"
-                      type="date"
-                      value={addForm.birthdate}
-                      onChange={handleAddInputChange}
-                      required
+                      selected={parseDateInputValue(addForm.birthdate)}
+                      onChange={(selectedDate) => {
+                        setAddForm((previous) => ({
+                          ...previous,
+                          birthdate: formatDateInputValue(selectedDate),
+                        }));
+                      }}
+                      maxDate={latestEligibleBirthdate}
+                      dateFormat="MMM dd, yyyy"
+                      placeholderText="Select birthdate"
+                      className="dashboard-date-picker-input inline-edit-input"
+                      wrapperClassName="dashboard-date-picker-wrap"
+                      popperClassName="dashboard-date-popper"
+                      showPopperArrow={false}
+                      calendarClassName="dashboard-date-calendar"
+                      popperPlacement="bottom-start"
+                      onCalendarOpen={stripDatePickerTitles}
+                      onMonthChange={stripDatePickerTitles}
+                      onYearChange={stripDatePickerTitles}
+                      showMonthDropdown
+                      showYearDropdown
+                      scrollableYearDropdown
+                      yearDropdownItemNumber={80}
+                      dropdownMode="select"
                     />
                   </div>
 
                   <p className="info-note">
-                    Username and password are generated automatically after creating this account.
+                    Username and password are generated automatically after creating this account. Bus assignment is managed from bus records.
                   </p>
-
-                  <div className="form-group">
-                    <label htmlFor="assignedBusId">Assigned Bus</label>
-                    <select
-                      id="assignedBusId"
-                      name="assignedBusId"
-                      value={addForm.assignedBusId}
-                      onChange={handleAddInputChange}
-                    >
-                      <option value="">Unassigned</option>
-                      {visibleBusOptions.map((bus) => (
-                        <option key={bus.id} value={bus.id}>
-                          {String(bus.busNumber || bus.bus_number || 'N/A')} ({String(bus.plateNumber || bus.plate_number || 'N/A')})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
                 </div>
               </div>
 
-              <div className="form-actions">
-                <button type="button" className="btn-cancel" onClick={closeAddModal} disabled={addSubmitting}>
+              <div className="modal-actions-row bus-modal-actions">
+                <button type="button" className="bus-action-btn secondary" onClick={closeAddModal} disabled={addSubmitting}>
                   Cancel
                 </button>
-                <button type="submit" className="btn-submit" disabled={addSubmitting}>
+                <button type="submit" className="bus-action-btn primary" disabled={addSubmitting}>
                   {addSubmitting ? 'Adding...' : 'Add Attendant'}
                 </button>
               </div>
@@ -1441,25 +1459,9 @@ function BusAttendants() {
 
                   <div className="info-row">
                     <span className="info-label">Assigned Bus:</span>
-                    {isEditingDetails ? (
-                      <select
-                        className="inline-edit-input"
-                        name="assignedBusId"
-                        value={editForm.assignedBusId}
-                        onChange={handleEditInputChange}
-                      >
-                        <option value="">Unassigned</option>
-                        {visibleBusOptions.map((bus) => (
-                          <option key={`edit-attendant-bus-${bus.id}`} value={bus.id}>
-                            {bus.busNumber} ({bus.plateNumber})
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="info-value">
-                        {selectedAttendant.assignedBusId ? selectedAttendant.assignedBusId : 'Unassigned'}
-                      </span>
-                    )}
+                    <span className="info-value">
+                      {selectedAttendant.assignedBusId ? selectedAttendant.assignedBusId : 'Unassigned'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1484,7 +1486,6 @@ function BusAttendants() {
                           first_name: selectedAttendant.first_name || '',
                           last_name: selectedAttendant.last_name || '',
                           email: selectedAttendant.email || '',
-                          assignedBusId: selectedAttendant.assignedBusId || '',
                         });
                       }}
                       disabled={editSubmitting}

@@ -4,6 +4,11 @@
 
 This project uses **Firebase Authentication** and **Firestore** for admin access control.
 
+The app now includes:
+
+- **Startup preflight checks** for auth mode and required env keys
+- **Runtime error boundary** fallback UI to avoid silent white screens
+
 Authentication is considered valid only when:
 
 1. User signs in successfully via Firebase Auth (Email/Password), and
@@ -48,6 +53,8 @@ VITE_FIREBASE_APP_ID=...
 - `VITE_AUTH_PROVIDER=api`:
   - Uses `loginAPI`/`logoutAPI`/`getCurrentUser` from `src/services/api.js`.
   - Requires a reachable backend at `VITE_API_URL`.
+
+If startup configuration is invalid, the app shows a **Startup Configuration Error** screen with exact fixes instead of rendering a blank page.
 
 ### API `/profiles` Mode Notes
 
@@ -152,3 +159,18 @@ VITE_API_URL=
 
 - Verify all `VITE_FIREBASE_*` values exist in `.env`.
 - Restart dev server after changing env values.
+
+### White screen after pull/merge/clone
+
+Use this recovery sequence:
+
+1. `npm install`
+2. `npm run build`
+3. If needed, clear local cache keys and reload:
+  - `qnext_admin_buses`
+  - `qnext_admin_attendants`
+  - `routesManagement.localRoutes`
+  - `routesManagement.localDestinations`
+  - `routesManagement.globalOrigin`
+
+The error boundary also provides a "Clear Local Cache & Reload" action for this case.
