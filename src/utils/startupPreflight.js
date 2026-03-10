@@ -61,7 +61,7 @@ export const getStartupPreflightReport = () => {
   }
 
   if (authProvider === 'firebase' && apiUrl) {
-    warnings.push('VITE_API_URL is set but VITE_AUTH_PROVIDER is firebase. API auth is currently disabled by mode.');
+    warnings.push('VITE_API_URL is set while VITE_AUTH_PROVIDER is firebase. If backend data APIs are not fully available yet, leave VITE_API_URL empty for the smoothest first-run experience.');
   }
 
   const storageResult = ensureLocalStorageSchema();

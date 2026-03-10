@@ -135,6 +135,14 @@ function RoutesManagement() {
   });
 
   const isNetworkError = (err) => !err?.response && String(err?.message || '').toLowerCase().includes('network error');
+  const isRecoverableWriteError = (err) => {
+    if (isNetworkError(err)) {
+      return true;
+    }
+
+    const status = Number(err?.response?.status || 0);
+    return [400, 401, 403, 404, 405, 409, 422, 500, 501, 502, 503, 504].includes(status);
+  };
 
   const readLocalJson = (key, fallbackValue) => {
     try {
@@ -330,7 +338,7 @@ function RoutesManagement() {
         setError(networkMessages.join(' '));
       }
     } else if ((Array.isArray(routesToUse) ? routesToUse.length : 0) === 0 && queueOnlyRoutes.length > 0) {
-      setError('No geofence route records yet. Showing queue destinations only; click Edit to configure latitude, longitude, and radius.');
+      setError('No geofence mappings yet. Showing queue destinations only; click Edit on a destination row to save latitude, longitude, and radius mapping.');
     }
 
     if (routesResult.status === 'rejected' && destinationsResult.status === 'rejected' && !hasNetworkFailure) {
@@ -602,7 +610,7 @@ function RoutesManagement() {
       try {
         resolvedOriginConfig = await saveOriginGeofenceConfig(originPayload);
       } catch (originError) {
-        if (!isNetworkError(originError)) {
+        if (!isRecoverableWriteError(originError)) {
           throw originError;
         }
 
@@ -611,7 +619,7 @@ function RoutesManagement() {
           updatedAt: Date.now(),
         };
         writeLocalJson('routesManagement.globalOrigin', resolvedOriginConfig);
-        setError('Origin config API unavailable. Saved origin locally.');
+        setError('Origin API unavailable or auth token invalid/expired. Saved origin locally.');
       }
 
       setGlobalOrigin(resolvedOriginConfig);
@@ -629,7 +637,7 @@ function RoutesManagement() {
           queueId = String(createdDestination.id || '').trim();
           destinationName = String(createdDestination.destinationName || routeForm.newDestinationName || '').trim();
         } catch (destinationError) {
-          if (!isNetworkError(destinationError)) {
+          if (!isRecoverableWriteError(destinationError)) {
             throw destinationError;
           }
 
@@ -647,7 +655,7 @@ function RoutesManagement() {
             writeLocalJson(LOCAL_DESTINATIONS_KEY, nextDestinations);
             return nextDestinations;
           });
-          setError('Queue API unavailable. Saved destination locally.');
+          setError('Queue API unavailable or auth token invalid/expired. Saved destination locally.');
         }
       }
 
@@ -667,7 +675,7 @@ function RoutesManagement() {
           try {
             updatedRoute = await createRouteGeofence(payload);
           } catch (routeError) {
-            if (!isNetworkError(routeError)) {
+            if (!isRecoverableWriteError(routeError)) {
               throw routeError;
             }
 
@@ -683,7 +691,7 @@ function RoutesManagement() {
               destinationName,
               updatedAt: Date.now(),
             };
-            setError('Geofence API unavailable. Saved route locally.');
+            setError('Geofence API unavailable or auth token invalid/expired. Saved mapping locally.');
           }
 
           setRoutes((prevRoutes) => {
@@ -694,7 +702,7 @@ function RoutesManagement() {
           try {
             updatedRoute = await updateRouteGeofence(routeForm.id, payload);
           } catch (routeError) {
-            if (!isNetworkError(routeError)) {
+            if (!isRecoverableWriteError(routeError)) {
               throw routeError;
             }
 
@@ -710,7 +718,7 @@ function RoutesManagement() {
               destinationName,
               updatedAt: Date.now(),
             };
-            setError('Geofence API unavailable. Saved route locally.');
+            setError('Geofence API unavailable or auth token invalid/expired. Saved mapping locally.');
           }
 
           setRoutes((prevRoutes) => prevRoutes.map((routeItem) => (
@@ -720,18 +728,10 @@ function RoutesManagement() {
           )));
         }
       } else {
-        let createdRoute;
-
-        try {
-          createdRoute = await createRouteGeofence(payload);
-        } catch (routeError) {
-          if (!isNetworkError(routeError)) {
-            throw routeError;
-          }
-
-          createdRoute = {
-            id: `local-route-${Date.now()}`,
-            sourceType: 'geofence',
+        if (routeForm.destinationMode === 'new') {
+          const queueOnlyRow = {
+            id: `queue-only-${queueId || Date.now()}`,
+            sourceType: 'queue-only',
             originSource: 'global-config',
             originLabel: resolvedOriginLabel,
             latitude,
@@ -741,10 +741,16 @@ function RoutesManagement() {
             destinationName,
             updatedAt: Date.now(),
           };
-          setError('Geofence API unavailable. Saved route locally.');
-        }
 
-        setRoutes((prevRoutes) => [createdRoute, ...prevRoutes]);
+          setRoutes((prevRoutes) => {
+            const hasSameDestination = prevRoutes.some((routeItem) => String(routeItem.queueId || '').trim() === String(queueId || '').trim());
+            if (hasSameDestination) {
+              return prevRoutes;
+            }
+
+            return [queueOnlyRow, ...prevRoutes];
+          });
+        }
       }
 
       setRoutes((prevRoutes) => applyGlobalOriginToRoutes(prevRoutes, resolvedOriginConfig));
@@ -755,17 +761,17 @@ function RoutesManagement() {
 
       setSuccessModal({
         open: true,
-        title: isEditing ? 'Route Updated' : 'Route Created',
+        title: isEditing ? 'Route Updated' : 'Destination Saved',
         message: isEditing
-          ? 'Route details were updated successfully.'
-          : 'Route was created successfully.',
+          ? 'Geofence mapping was updated successfully.'
+          : 'Destination and shared origin were saved successfully.',
         detail: '',
         autoCloseMs: 5000,
       });
 
       closeModal();
     } catch (err) {
-      setError(getErrorMessage(err, isEditing ? 'Failed to update route.' : 'Failed to create route.'));
+      setError(getErrorMessage(err, isEditing ? 'Failed to update route.' : 'Failed to save destination and origin.'));
     } finally {
       setSaving(false);
     }
@@ -809,7 +815,7 @@ function RoutesManagement() {
       try {
         await deleteRouteGeofence(routeId);
       } catch (deleteError) {
-        if (!isNetworkError(deleteError)) {
+        if (!isRecoverableWriteError(deleteError)) {
           throw deleteError;
         }
 
@@ -865,14 +871,14 @@ function RoutesManagement() {
 
       <ConfirmationModal
         open={saveConfirmModal.open}
-        title={isEditing ? 'Confirm Route Update' : 'Confirm Route Creation'}
+        title={isEditing ? 'Confirm Route Update' : 'Confirm Destination Save'}
         message={isEditing
-          ? 'Save changes to this route?'
-          : 'Create this route?'}
+          ? 'Save changes to this geofence mapping?'
+          : 'Save destination and shared origin?'}
         note={isEditing
-          ? 'This will update route geofence and destination settings.'
-          : 'This will create a new route geofence record.'}
-        confirmLabel={saving ? 'Saving...' : (isEditing ? 'Save Route' : 'Create Route')}
+          ? 'This will update geofence mapping and destination settings.'
+          : 'This will save the destination record and update the global origin geofence.'}
+        confirmLabel={saving ? 'Saving...' : (isEditing ? 'Save Route' : 'Save Destination')}
         confirmDisabled={saving}
         cancelDisabled={saving}
         closeDisabled={saving}
@@ -882,10 +888,10 @@ function RoutesManagement() {
 
       <ConfirmationModal
         open={deleteConfirmModal.open}
-        title="Confirm Route Delete"
-        message="Delete this route?"
-        note="This will remove the geofence route record from the current list."
-        confirmLabel="Delete Route"
+        title="Confirm Mapping Delete"
+        message="Delete this geofence mapping?"
+        note="This will remove the geofence mapping record from the current list."
+        confirmLabel="Delete Mapping"
         confirmVariant="danger"
         onCancel={closeDeleteConfirmation}
         onConfirm={confirmDeleteRoute}
@@ -895,8 +901,8 @@ function RoutesManagement() {
         <div className="requests-header">
           <div className="header-content">
             <div>
-              <h1>Route Creation Management</h1>
-              <p className="subtitle">Manage route origins (geofence) and destinations (queue)</p>
+              <h1>Destination & Geofence Management</h1>
+              <p className="subtitle">Manage shared origin geofence and destination queue records</p>
             </div>
           </div>
         </div>
@@ -941,7 +947,7 @@ function RoutesManagement() {
 
           <div className="bus-actions-toolbar">
             <button className="add-bus-btn" onClick={openCreateModal}>
-              + Create Route
+              + Save Destination
             </button>
           </div>
         </div>
@@ -1052,7 +1058,7 @@ function RoutesManagement() {
         <div className="modal-overlay" onClick={closeDetailsModal}>
           <div className="modal-content" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>Route Details</h2>
+              <h2>Mapping Details</h2>
               <button className="close-btn" onClick={closeDetailsModal}>&times;</button>
             </div>
 
@@ -1122,14 +1128,14 @@ function RoutesManagement() {
                     openEditModal(routeToEdit);
                   }}
                 >
-                  Edit Route
+                  Edit Mapping
                 </button>
                 <button
                   type="button"
                   className="bus-action-btn danger"
                   onClick={() => requestDeleteRoute(selectedRoute.id, selectedRoute.sourceType)}
                 >
-                  Delete Route
+                  Delete Mapping
                 </button>
               </div>
             </div>
@@ -1141,7 +1147,7 @@ function RoutesManagement() {
         <div className="modal-overlay" onClick={closeModal}>
           <div className="modal-content add-bus-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <h2>{isEditing ? 'Edit Route' : 'Create Route'}</h2>
+              <h2>{isEditing ? 'Edit Mapping' : 'Save Destination'}</h2>
               <button className="close-btn" onClick={closeModal}>&times;</button>
             </div>
 
@@ -1267,7 +1273,7 @@ function RoutesManagement() {
                   Cancel
                 </button>
                 <button type="submit" className="btn-submit" disabled={saving}>
-                  {saving ? 'Saving...' : isEditing ? 'Save Route' : 'Create Route'}
+                  {saving ? 'Saving...' : isEditing ? 'Save Mapping' : 'Save Destination'}
                 </button>
               </div>
             </form>

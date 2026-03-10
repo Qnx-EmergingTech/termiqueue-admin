@@ -52,6 +52,7 @@ Required values in `.env`:
 
 > `VITE_API_URL` is optional and only used when `VITE_AUTH_PROVIDER=api`.
 > For most developers pulling this repo, keep `VITE_AUTH_PROVIDER=firebase`.
+> Leave `VITE_API_URL` empty on first run unless your backend supports the required data endpoints.
 
 ### Demo Data Files (JSON)
 
@@ -270,6 +271,18 @@ VITE_API_URL=
 ```
 
 Using `VITE_AUTH_PROVIDER=api` without a live backend auth server will block login.
+
+### Bus Attendants / Routes API errors on first run
+If you see endpoint errors (for example, `405` on `/profiles` or `500` on `/queues`):
+
+- Keep `VITE_AUTH_PROVIDER=firebase`
+- Leave `VITE_API_URL=` empty unless your backend is fully ready
+- Ensure backend supports these read endpoints before enabling data API URL:
+   - `GET /profiles` (or equivalent user listing endpoint)
+   - `GET /queues`
+   - `GET /geofence` / route geofence reads
+
+The app now falls back to Firebase/local cached data for read operations when these endpoints are unavailable, so core pages still load for new users.
 
 ### Startup Configuration Error screen appears
 

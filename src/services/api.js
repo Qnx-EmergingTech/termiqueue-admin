@@ -4,6 +4,7 @@ import { getBusesData, saveBusesData } from '../data/busesData';
 import { db, firebaseInitialized } from '../firebase';
 
 const API_URL = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '');
+const AUTH_PROVIDER = String(import.meta.env.VITE_AUTH_PROVIDER || 'firebase').trim().toLowerCase();
 export const API_SESSION_EXPIRED_EVENT = 'qnext:api-session-expired';
 const LOCAL_ATTENDANTS_KEY = 'qnext_admin_attendants';
 const LOCAL_ROUTES_KEY = 'routesManagement.localRoutes';
@@ -205,6 +206,103 @@ const getFirebaseBusAttendants = async () => {
 
 const BUS_ENDPOINTS = ['/buses', '/busses'];
 
+const toDisplayRoute = (originValue, destinationValue) => {
+  const origin = String(originValue || '').trim();
+  const destination = String(destinationValue || '').trim();
+
+  if (origin && destination) {
+    return `${origin} - ${destination}`;
+  }
+
+  if (origin) {
+    return origin;
+  }
+
+  return destination;
+};
+
+const normalizeBusRecord = (bus, fallbackIndex = 0) => {
+  const origin = String(bus?.origin || '').trim();
+  const destination = String(bus?.destination || '').trim();
+  const routeFromParts = toDisplayRoute(origin, destination);
+  const route = String(bus?.route || routeFromParts || '').trim();
+  const registeredDestination = String(
+    bus?.registeredDestination ||
+    bus?.registered_destination ||
+    destination ||
+    ''
+  ).trim();
+
+  return {
+    ...bus,
+    id: bus?.id || bus?.bus_id || `bus-${fallbackIndex + 1}`,
+    busNumber: String(bus?.busNumber || bus?.bus_number || bus?.busNo || '').trim(),
+    route,
+    busCompany: String(
+      bus?.busCompany ||
+      bus?.bus_company ||
+      bus?.company ||
+      bus?.operator ||
+      bus?.bus_name ||
+      ''
+    ).trim(),
+    status: String(bus?.status || '').trim(),
+    plateNumber: String(bus?.plateNumber || bus?.plate_number || bus?.plateNo || '').trim(),
+    capacity: Number(bus?.capacity || 0),
+    busAttendant: String(bus?.busAttendant || bus?.attendant_name || bus?.attendantName || '').trim(),
+    busCompanyEmail: String(bus?.busCompanyEmail || bus?.bus_company_email || bus?.company_email || '').trim(),
+    busCompanyContact: String(bus?.busCompanyContact || bus?.bus_company_contact || bus?.company_contact || '').trim(),
+    registeredDestination,
+    origin,
+    destination,
+    lastUpdated: Number(
+      bus?.lastUpdated ||
+      bus?.updatedAt ||
+      bus?.updated_at ||
+      bus?.createdAt ||
+      bus?.created_at ||
+      Date.now()
+    ),
+  };
+};
+
+const normalizeBusList = (items) => {
+  return (Array.isArray(items) ? items : []).map((bus, index) => normalizeBusRecord(bus, index));
+};
+
+const toBusWritePayload = (busData = {}) => {
+  const normalized = normalizeBusRecord(busData);
+  const routeParts = String(normalized.route || '').split('-').map((part) => part.trim()).filter(Boolean);
+  const origin = String(normalized.origin || routeParts[0] || '').trim();
+  const destination = String(normalized.registeredDestination || normalized.destination || routeParts.slice(1).join(' - ') || '').trim();
+
+  return {
+    ...busData,
+    id: normalized.id,
+    busNumber: normalized.busNumber,
+    bus_number: normalized.busNumber,
+    route: toDisplayRoute(origin, destination),
+    origin,
+    destination,
+    busCompany: normalized.busCompany,
+    bus_company: normalized.busCompany,
+    status: normalized.status,
+    plateNumber: normalized.plateNumber,
+    plate_number: normalized.plateNumber,
+    capacity: normalized.capacity,
+    busAttendant: normalized.busAttendant,
+    attendant_name: normalized.busAttendant,
+    busCompanyEmail: normalized.busCompanyEmail,
+    bus_company_email: normalized.busCompanyEmail,
+    busCompanyContact: normalized.busCompanyContact,
+    bus_company_contact: normalized.busCompanyContact,
+    registeredDestination: destination,
+    registered_destination: destination,
+    updatedAt: normalized.lastUpdated,
+    updated_at: normalized.lastUpdated,
+  };
+};
+
 const buildUrl = (endpoint = '') => {
   const apiUrl = requireApiUrl();
   const normalizedEndpoint = `/${String(endpoint || '').trim().replace(/^\/+/, '')}`;
@@ -231,6 +329,46 @@ const getStoredToken = () => {
   }
 
   return '';
+};
+
+const getStoredRefreshToken = () => {
+  const refreshTokenKeys = ['refreshToken', 'refresh_token'];
+
+  for (const key of refreshTokenKeys) {
+    const value = String(localStorage.getItem(key) || '').trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  return '';
+};
+
+const persistAccessToken = (token) => {
+  const normalizedToken = String(token || '').trim();
+  if (!normalizedToken) {
+    return;
+  }
+
+  [
+    'accessToken',
+    'access_token',
+    'token',
+    'idToken',
+    'id_token',
+    'jwt',
+    'authToken',
+    'auth_token',
+  ].forEach((key) => localStorage.setItem(key, normalizedToken));
+};
+
+const persistRefreshToken = (token) => {
+  const normalizedToken = String(token || '').trim();
+  if (!normalizedToken) {
+    return;
+  }
+
+  ['refreshToken', 'refresh_token'].forEach((key) => localStorage.setItem(key, normalizedToken));
 };
 
 const getAuthHeaders = () => {
@@ -264,6 +402,22 @@ const clearStoredSession = () => {
   ].forEach((key) => localStorage.removeItem(key));
 };
 
+const clearStoredApiTokens = () => {
+  [
+    'accessToken',
+    'access_token',
+    'token',
+    'idToken',
+    'id_token',
+    'jwt',
+    'authToken',
+    'auth_token',
+    'refreshToken',
+    'refresh_token',
+    'sessionStartedAt',
+  ].forEach((key) => localStorage.removeItem(key));
+};
+
 const emitSessionExpired = (message) => {
   if (typeof window === 'undefined') {
     return;
@@ -274,6 +428,20 @@ const emitSessionExpired = (message) => {
       detail: { message: message || 'Session expired. Please login again.' },
     })
   );
+};
+
+const shouldEmitSessionExpired = () => AUTH_PROVIDER === 'api';
+
+const handleUnauthorizedSession = (error, { forceFullClear = false } = {}) => {
+  if (forceFullClear) {
+    clearStoredSession();
+  } else {
+    clearStoredApiTokens();
+  }
+
+  if (shouldEmitSessionExpired()) {
+    emitSessionExpired(getErrorMessage(error, 'Session expired. Please login again.'));
+  }
 };
 
 const getErrorMessage = (error, fallbackMessage = 'Request failed') => {
@@ -322,6 +490,10 @@ const extractObject = (payload) => {
     return null;
   }
 
+  if (Array.isArray(payload)) {
+    return null;
+  }
+
   if (payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) {
     return payload.data;
   }
@@ -341,9 +513,129 @@ const extractObject = (payload) => {
   return payload;
 };
 
+const DEFAULT_ORIGIN_GEOFENCE_CONFIG = {
+  label: 'One Ayala Terminal',
+  latitude: 14.5527,
+  longitude: 121.0244,
+  radius: 500,
+};
+
+const toFiniteNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizeOriginGeofenceCandidate = (candidate) => {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return null;
+  }
+
+  const latitude = toFiniteNumber(candidate?.latitude ?? candidate?.lat);
+  const longitude = toFiniteNumber(candidate?.longitude ?? candidate?.lng ?? candidate?.lon ?? candidate?.long);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+
+  const parsedRadius = toFiniteNumber(candidate?.radius ?? candidate?.radius_meters ?? candidate?.radiusMeters);
+  const radius = Number.isFinite(parsedRadius) && parsedRadius > 0
+    ? parsedRadius
+    : DEFAULT_ORIGIN_GEOFENCE_CONFIG.radius;
+
+  return {
+    label: String(candidate?.label || candidate?.originLabel || candidate?.origin_name || candidate?.name || DEFAULT_ORIGIN_GEOFENCE_CONFIG.label).trim() || DEFAULT_ORIGIN_GEOFENCE_CONFIG.label,
+    latitude,
+    longitude,
+    radius,
+    updatedAt: Number(candidate?.updatedAt || candidate?.updated_at || Date.now()),
+  };
+};
+
+const resolveOriginGeofenceConfig = (payload) => {
+  const directObject = normalizeOriginGeofenceCandidate(extractObject(payload));
+  if (directObject) {
+    return directObject;
+  }
+
+  const fromArray = extractArray(payload)
+    .map((item) => normalizeOriginGeofenceCandidate(item))
+    .find(Boolean);
+
+  return fromArray || null;
+};
+
+const REFRESH_ENDPOINTS = ['/profiles/refresh', '/auth/refresh', '/token/refresh'];
+
+const tryRefreshAccessToken = async () => {
+  const refreshToken = getStoredRefreshToken();
+  if (!refreshToken || !API_URL) {
+    return '';
+  }
+
+  let lastError = null;
+
+  for (const endpoint of REFRESH_ENDPOINTS) {
+    try {
+      const response = await axios.post(
+        buildUrl(endpoint),
+        {
+          refreshToken,
+          refresh_token: refreshToken,
+        },
+        {
+          headers: {
+            'x-refresh-token': refreshToken,
+            Authorization: `Bearer ${refreshToken}`,
+          },
+        }
+      );
+
+      const raw = response?.data || {};
+      const nextAccessToken = String(
+        raw?.accessToken ||
+        raw?.access_token ||
+        raw?.token ||
+        raw?.idToken ||
+        raw?.id_token ||
+        ''
+      ).trim();
+
+      const nextRefreshToken = String(raw?.refreshToken || raw?.refresh_token || '').trim();
+
+      if (!nextAccessToken) {
+        continue;
+      }
+
+      persistAccessToken(nextAccessToken);
+      if (nextRefreshToken) {
+        persistRefreshToken(nextRefreshToken);
+      }
+
+      return nextAccessToken;
+    } catch (error) {
+      lastError = error;
+      const status = Number(error?.response?.status || 0);
+      if (status === 404 || status === 405) {
+        continue;
+      }
+
+      break;
+    }
+  }
+
+  if (lastError) {
+    console.warn('API token refresh failed:', lastError);
+  }
+
+  return '';
+};
+
 const requestWithFallback = async ({ method, endpoints, data, params, withAuth = true }) => {
   const endpointList = Array.isArray(endpoints) ? endpoints : [endpoints];
   let lastError = null;
+  const normalizedMethod = String(method || '').trim().toLowerCase();
+  const isReadMethod = normalizedMethod === 'get' || normalizedMethod === 'head' || normalizedMethod === 'options';
+  let hasAttemptedAuthRecovery = false;
 
   for (let index = 0; index < endpointList.length; index += 1) {
     const endpoint = endpointList[index];
@@ -360,16 +652,71 @@ const requestWithFallback = async ({ method, endpoints, data, params, withAuth =
       return response;
     } catch (error) {
       lastError = error;
-      const status = Number(error?.response?.status || 0);
-      const shouldTryNext = status === 404 && index < endpointList.length - 1;
+      let activeError = error;
+      let status = Number(activeError?.response?.status || 0);
+
+      const isUnauthorized = status === 401 || status === 403;
+      if (withAuth && isUnauthorized && !hasAttemptedAuthRecovery) {
+        hasAttemptedAuthRecovery = true;
+
+        const refreshedToken = await tryRefreshAccessToken();
+        if (refreshedToken) {
+          try {
+            const retryResponse = await axios({
+              method,
+              url: buildUrl(endpoint),
+              data,
+              params,
+              headers: getAuthHeaders(),
+            });
+
+            return retryResponse;
+          } catch (retryError) {
+            lastError = retryError;
+            activeError = retryError;
+            status = Number(activeError?.response?.status || 0);
+          }
+        } else {
+          clearStoredApiTokens();
+        }
+      }
+
+      if (withAuth && isUnauthorized && index >= endpointList.length - 1) {
+        handleUnauthorizedSession(activeError);
+      }
+
+      const isRetryableReadStatus = [404, 405, 500, 501, 502, 503, 504].includes(status);
+      const shouldTryNext = index < endpointList.length - 1 && (status === 404 || (isReadMethod && (isRetryableReadStatus || !activeError?.response)));
 
       if (!shouldTryNext) {
-        throw error;
+        throw activeError;
       }
     }
   }
 
   throw lastError || new Error('Request failed.');
+};
+
+const isRecoverableReadFailure = (error) => {
+  if (!error?.response) {
+    return true;
+  }
+
+  const status = Number(error?.response?.status || 0);
+  return [404, 405, 500, 501, 502, 503, 504].includes(status);
+};
+
+const getFallbackAttendants = async () => {
+  try {
+    const firebaseAttendants = await getFirebaseBusAttendants();
+    if (firebaseAttendants.length > 0) {
+      return firebaseAttendants;
+    }
+  } catch (error) {
+    console.warn('Failed to fetch bus attendants from Firebase, falling back to local data:', error);
+  }
+
+  return getLocalAttendants();
 };
 
 const resolveProfileFromApi = async (token) => {
@@ -399,9 +746,8 @@ const resolveProfileFromApi = async (token) => {
         continue;
       }
 
-      if (status === 401) {
-        clearStoredSession();
-        emitSessionExpired(getErrorMessage(error, 'Session expired. Please login again.'));
+      if (status === 401 || status === 403) {
+        handleUnauthorizedSession(error, { forceFullClear: true });
         return null;
       }
 
@@ -512,7 +858,7 @@ export const getCurrentUser = async () => {
 // --- BUS FUNCTIONS (Add these to fix the Buses page crash) ---
 export const fetchBuses = async (params = {}) => {
   if (!API_URL) {
-    return getBusesData();
+    return normalizeBusList(getBusesData());
   }
 
   const response = await requestWithFallback({
@@ -521,29 +867,27 @@ export const fetchBuses = async (params = {}) => {
     params,
   });
 
-  return extractArray(response.data);
+  return normalizeBusList(extractArray(response.data));
 };
 
 export const createBus = async (busData) => {
   if (!API_URL) {
     const buses = getBusesData();
-    const created = {
-      ...busData,
-      id: busData?.id || Date.now(),
-      lastUpdated: Date.now(),
-    };
+    const created = normalizeBusRecord({ ...busData, id: busData?.id || Date.now(), lastUpdated: Date.now() });
     const next = [created, ...buses];
     saveBusesData(next);
     return created;
   }
 
+  const payload = toBusWritePayload(busData);
+
   const response = await requestWithFallback({
     method: 'post',
     endpoints: BUS_ENDPOINTS.map((endpoint) => `${endpoint}/`),
-    data: busData,
+    data: payload,
   });
 
-  return extractObject(response.data) || busData;
+  return normalizeBusRecord(extractObject(response.data) || payload);
 };
 
 export const updateBus = async (id, busData) => {
@@ -551,20 +895,22 @@ export const updateBus = async (id, busData) => {
     const buses = getBusesData();
     const next = buses.map((bus) => (
       String(bus?.id) === String(id)
-        ? { ...bus, ...busData, id: bus.id, lastUpdated: Date.now() }
+        ? normalizeBusRecord({ ...bus, ...busData, id: bus.id, lastUpdated: Date.now() })
         : bus
     ));
     saveBusesData(next);
-    return next.find((bus) => String(bus?.id) === String(id)) || { id, ...busData, lastUpdated: Date.now() };
+    return next.find((bus) => String(bus?.id) === String(id)) || normalizeBusRecord({ id, ...busData, lastUpdated: Date.now() });
   }
+
+  const payload = toBusWritePayload({ id, ...busData });
 
   const response = await requestWithFallback({
     method: 'put',
     endpoints: BUS_ENDPOINTS.map((endpoint) => `${endpoint}/${encodeURIComponent(String(id))}`),
-    data: busData,
+    data: payload,
   });
 
-  return extractObject(response.data) || { id, ...busData };
+  return normalizeBusRecord(extractObject(response.data) || payload);
 };
 
 export const deleteBus = async (id) => {
@@ -725,12 +1071,21 @@ export const fetchQueues = async () => {
     return buildLocalQueueItemsFromBuses();
   }
 
-  const response = await requestWithFallback({
-    method: 'get',
-    endpoints: ['/queues/', '/queues'],
-  });
+  try {
+    const response = await requestWithFallback({
+      method: 'get',
+      endpoints: ['/queues/', '/queues'],
+    });
 
-  return extractArray(response.data);
+    return extractArray(response.data);
+  } catch (error) {
+    if (!isRecoverableReadFailure(error)) {
+      throw error;
+    }
+
+    console.warn('Queue destination API unavailable or incompatible. Falling back to local route-derived destinations.', error);
+    return buildLocalQueueItemsFromBuses();
+  }
 };
 
 export const fetchQueueDestinations = async () => {
@@ -813,10 +1168,20 @@ export const fetchRouteGeofences = async () => {
     return readLocalJson(LOCAL_ROUTES_KEY, []);
   }
 
-  const response = await requestWithFallback({
-    method: 'get',
-    endpoints: ['/geofence', '/geofence/', '/route-geofences/', '/route-geofences', '/routes/geofences', '/routes/geofences/'],
-  });
+  let response;
+  try {
+    response = await requestWithFallback({
+      method: 'get',
+      endpoints: ['/geofence', '/geofence/', '/route-geofences/', '/route-geofences', '/routes/geofences', '/routes/geofences/'],
+    });
+  } catch (error) {
+    if (!isRecoverableReadFailure(error)) {
+      throw error;
+    }
+
+    console.warn('Route geofence API unavailable or incompatible. Falling back to cached/local route data.', error);
+    return readLocalJson(LOCAL_ROUTES_KEY, []);
+  }
 
   return extractArray(response.data).map((routeItem, index) => ({
     ...routeItem,
@@ -911,20 +1276,40 @@ export const fetchOriginGeofenceConfig = async () => {
       return stored;
     }
 
-    return {
-      label: 'One Ayala Terminal',
-      latitude: 14.5527,
-      longitude: 121.0244,
-      radius: 500,
-    };
+    return DEFAULT_ORIGIN_GEOFENCE_CONFIG;
   }
 
-  const response = await requestWithFallback({
-    method: 'get',
-    endpoints: ['/geofence', '/geofence/', '/route-geofences/origin-config', '/routes/origin-geofence', '/origin-geofence'],
-  });
+  try {
+    const response = await requestWithFallback({
+      method: 'get',
+      endpoints: ['/geofence', '/geofence/', '/route-geofences/origin-config', '/routes/origin-geofence', '/origin-geofence'],
+    });
 
-  return extractObject(response.data);
+    const resolvedOrigin = resolveOriginGeofenceConfig(response.data);
+    if (resolvedOrigin) {
+      writeLocalJson(LOCAL_ORIGIN_KEY, resolvedOrigin);
+      return resolvedOrigin;
+    }
+
+    const stored = readLocalJson(LOCAL_ORIGIN_KEY, null);
+    if (stored && Number.isFinite(Number(stored?.latitude)) && Number.isFinite(Number(stored?.longitude))) {
+      return stored;
+    }
+
+    return DEFAULT_ORIGIN_GEOFENCE_CONFIG;
+  } catch (error) {
+    if (!isRecoverableReadFailure(error)) {
+      throw error;
+    }
+
+    console.warn('Origin geofence API unavailable or incompatible. Falling back to local/default origin config.', error);
+    const stored = readLocalJson(LOCAL_ORIGIN_KEY, null);
+    if (stored && Number.isFinite(Number(stored?.latitude)) && Number.isFinite(Number(stored?.longitude))) {
+      return stored;
+    }
+
+    return DEFAULT_ORIGIN_GEOFENCE_CONFIG;
+  }
 };
 
 export const saveOriginGeofenceConfig = async (payload = {}) => {
@@ -985,25 +1370,30 @@ export const saveOriginGeofenceConfig = async (payload = {}) => {
 
 export const fetchBusAttendants = async () => {
   if (!API_URL) {
-    try {
-      const firebaseAttendants = await getFirebaseBusAttendants();
-      if (firebaseAttendants.length > 0) {
-        return firebaseAttendants;
-      }
-    } catch (error) {
-      console.warn('Failed to fetch bus attendants from Firebase, falling back to local data:', error);
-    }
-
-    return getLocalAttendants();
+    return getFallbackAttendants();
   }
 
-  const response = await requestWithFallback({
-    method: 'get',
-    endpoints: ['/profiles/', '/profiles'],
-    params: { user_type: 'bus_attendant' },
-  });
+  let response;
+  try {
+    response = await requestWithFallback({
+      method: 'get',
+      endpoints: ['/profiles/', '/profiles', '/users/', '/users'],
+      params: { user_type: 'bus_attendant' },
+    });
+  } catch (error) {
+    if (!isRecoverableReadFailure(error)) {
+      throw error;
+    }
+
+    console.warn('Bus attendant API unavailable or incompatible. Falling back to Firebase/local data.', error);
+    return getFallbackAttendants();
+  }
 
   const profiles = extractArray(response.data);
+  if (!Array.isArray(profiles) || profiles.length === 0) {
+    return getFallbackAttendants();
+  }
+
   return profiles
     .map((profile, index) => ({
       ...profile,

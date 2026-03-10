@@ -49,6 +49,7 @@ function StartupPreflight({ report }) {
         <ol style={{ marginTop: 0, marginBottom: 0 }}>
           <li>Create or update your `.env` from `.env.example`.</li>
           <li>Use `VITE_AUTH_PROVIDER=firebase` for default repo setup.</li>
+          <li>Leave `VITE_API_URL` empty unless your backend endpoints are ready.</li>
           <li>Run `npm install` after pull/merge if dependencies changed.</li>
           <li>Restart the dev server after env changes.</li>
         </ol>

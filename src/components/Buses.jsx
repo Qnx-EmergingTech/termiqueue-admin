@@ -267,12 +267,18 @@ function Buses() {
 
   const filteredBuses = sourceBuses.filter(bus => {
     const query = searchQuery.toLowerCase();
+    const busNumber = String(bus?.busNumber || '').toLowerCase();
+    const route = String(bus?.route || '').toLowerCase();
+    const busCompany = String(bus?.busCompany || '').toLowerCase();
+    const plateNumber = String(bus?.plateNumber || '').toLowerCase();
+    const status = String(bus?.status || '').toLowerCase();
+
     return (
-      bus.busNumber.toLowerCase().includes(query) ||
-      bus.route.toLowerCase().includes(query) ||
-      bus.busCompany.toLowerCase().includes(query) ||
-      bus.plateNumber.toLowerCase().includes(query) ||
-      bus.status.toLowerCase().includes(query)
+      busNumber.includes(query) ||
+      route.includes(query) ||
+      busCompany.includes(query) ||
+      plateNumber.includes(query) ||
+      status.includes(query)
     );
   });
 
